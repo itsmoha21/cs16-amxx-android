@@ -1,0 +1,14 @@
+# CS16Client R8/ProGuard rules (git flavor + release build).
+#
+# The app module is a thin launcher: activities construct Intents for the
+# engine app and unpack assets. Everything under the app package is reached
+# from Android framework callbacks, so keep it wholesale — the APK is
+# dominated by native libraries anyway, shrinking Java code saves nothing.
+
+-keep class su.xash.cs16client.** { *; }
+-keepclassmembers class su.xash.cs16client.** { *; }
+
+# Compatibility safety net (framework callbacks via reflection in
+# Activity/ActivityCompat base classes are not affected, but keep these
+# attributes so stack traces in user logs stay readable).
+-keepattributes SourceFile,LineNumberTable,*Annotation*,Signature,InnerClasses,EnclosingMethod

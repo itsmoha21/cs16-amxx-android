@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/menu_bg"
+    android:fitsSystemWindows="true"
+    android:orientation="vertical">
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="14dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:fontFamily="sans-serif"
+                android:text="@string/plugins_title"
+                android:textColor="#E8ECF4"
+                android:textSize="24sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/plugins_file_name"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:text="@string/plugins_sub"
+                android:textColor="#7E8CA0"
+                android:textSize="13sp" />
+
+            <!-- search: type to filter plugins*.ini -->
+            <EditText
+                android:id="@+id/plugins_search"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/chip_bg"
+                android:drawableLeft="@drawable/ic_search"
+                android:drawablePadding="9dp"
+                android:hint="@string/plugins_search_hint"
+                android:imeOptions="actionSearch"
+                android:importantForAutofill="no"
+                android:inputType="text"
+                android:maxLines="1"
+                android:paddingLeft="13dp"
+                android:paddingRight="13dp"
+                android:paddingTop="11dp"
+                android:paddingBottom="11dp"
+                android:singleLine="true"
+                android:textColor="#E8ECF4"
+                android:textColorHint="#5C6474"
+                android:textSize="14sp" />
+
+            <LinearLayout
+                android:id="@+id/plugins_results_box"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/card_dark"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <ListView
+                    android:id="@+id/plugins_results"
+                    android:layout_width="match_parent"
+                    android:layout_height="170dp"
+                    android:divider="#232A36"
+                    android:dividerHeight="1dp"
+                    android:visibility="gone" />
+
+            </LinearLayout>
+
+            <!-- editor with line-number gutter -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/card_dark"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/plugins_gutter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="340dp"
+                    android:fontFamily="monospace"
+                    android:gravity="top|right"
+                    android:includeFontPadding="false"
+                    android:lineSpacingExtra="3dp"
+                    android:paddingLeft="6dp"
+                    android:paddingTop="12dp"
+                    android:paddingRight="9dp"
+                    android:paddingBottom="12dp"
+                    android:text="1"
+                    android:textColor="#4A5768"
+                    android:textSize="12sp" />
+
+                <View
+                    android:layout_width="1dp"
+                    android:layout_height="match_parent"
+                    android:background="#232A36" />
+
+                <su.xash.cs16client.EditorText
+                    android:id="@+id/plugins_text"
+                    android:layout_width="0dp"
+                    android:layout_height="340dp"
+                    android:layout_weight="1"
+                    android:background="@android:color/transparent"
+                    android:fontFamily="monospace"
+                    android:gravity="top|left"
+                    android:hint="@string/plugins_empty"
+                    android:importantForAutofill="no"
+                    android:includeFontPadding="false"
+                    android:inputType="textMultiLine|textNoSuggestions"
+                    android:lineSpacingExtra="3dp"
+                    android:paddingLeft="10dp"
+                    android:paddingTop="12dp"
+                    android:paddingRight="10dp"
+                    android:paddingBottom="12dp"
+                    android:scrollbars="vertical"
+                    android:textColor="#D6E2F0"
+                    android:textColorHint="#46506180"
+                    android:textSize="12sp" />
+
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/plugins_path"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:ellipsize="middle"
+                android:singleLine="true"
+                android:textColor="#4E5666"
+                android:textSize="10sp" />
+
+            <!-- Save: icon + label centered together -->
+            <LinearLayout
+                android:id="@+id/plugins_save"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/btn_neutral"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:orientation="horizontal">
+
+                <ImageView
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/ic_save" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginLeft="9dp"
+                    android:fontFamily="sans-serif-medium"
+                    android:text="@string/plugins_save"
+                    android:textColor="#E8ECF4"
+                    android:textSize="15sp" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- bottom tabs (shared with launcher/compiler) -->
+    <include layout="@layout/tab_bar" />
+
+</LinearLayout>

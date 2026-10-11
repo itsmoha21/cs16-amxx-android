@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">CS16Client</string>
+
+    <!-- launcher menu -->
+    <string name="menu_top_title">CS16Client</string>
+    <string name="menu_title">Counter-Strike 1.6</string>
+    <string name="menu_sub">AMX Mod X edition</string>
+    <string name="menu_launch">LAUNCH</string>
+    <string name="menu_settings_header">SETTINGS</string>
+    <string name="section_status">STATUS</string>
+    <string name="section_game">GAME</string>
+    <string name="status_engine">Engine app</string>
+    <string name="status_addons">Addons bundle</string>
+    <string name="status_installed">Installed</string>
+    <string name="status_missing">Missing</string>
+    <string name="status_will_install">Will install on launch</string>
+    <string name="menu_target_label">Target</string>
+    <string name="menu_target_value">Counter-Strike • cstrike</string>
+    <string name="hero_sub">cstrike • Xash3D FWGS engine</string>
+    <string name="tool_compile_sum">Run amxxpc on scripting/*.sma</string>
+    <string name="tool_plugins_sum">Edit plugins.ini and plugins-*.ini</string>
+    <string name="tool_reinstall_sum">Restore the bundled AMXX addons</string>
+    <string name="back_desc">Back</string>
+    <string name="tab_launch">Launch</string>
+    <string name="tab_plugins">Plugins</string>
+    <string name="tab_compile">Compile</string>
+    <string name="menu_enable_amxx">AMX Mod X</string>
+    <string name="menu_enable_amxx_sum">Metamod plugins and server mods</string>
+    <string name="menu_enable_yapb">YaPB bots</string>
+    <string name="menu_enable_yapb_sum">Bots loaded as a metamod plugin</string>
+    <string name="menu_compile">Compile SMA plugin</string>
+    <string name="menu_plugins">Plugins (.ini editor)</string>
+    <string name="menu_reinstall">Re-install addons</string>
+    <string name="menu_status_ok">Engine app: installed</string>
+    <string name="menu_status_missing">Engine app: MISSING - LAUNCH opens the download page</string>
+    <string name="menu_addons_ok">Addons bundle: installed</string>
+    <string name="menu_addons_missing">Addons bundle: will install on launch</string>
+    <string name="menu_reinstalled">Addons re-installed</string>
+    <string name="menu_on">ON</string>
+    <string name="menu_off">OFF</string>
+
+    <!-- SMA compiler -->
+    <string name="compiler_title">SMA Compiler (amxxpc)</string>
+    <string name="compiler_title_big">Compiler</string>
+    <string name="compiler_sub">Compile .sma scripts with the local amxxpc.</string>
+    <string name="compiler_log_header">LOG</string>
+    <string name="compiler_compile_sel">COMPILE SELECTED</string>
+    <string name="compiler_compile_all">COMPILE ALL</string>
+    <string name="compiler_close">CLOSE</string>
+    <string name="compiler_no_scripts">No .sma scripts in scripting/</string>
+    <string name="compiler_selected">Target: %1$s &#8594; %2$s</string>
+    <string name="compiler_done">Compile finished</string>
+    <string name="compiler_copy">COPY</string>
+    <string name="compiler_clear">CLEAR</string>
+    <string name="compiler_copied">Log copied</string>
+    <string name="compiler_section_scripts">PLUGINS (.SMA)</string>
+    <string name="compiler_none_checked">No scripts selected</string>
+
+    <!-- plugins .ini editor -->
+    <string name="plugins_title">Plugins</string>
+    <string name="plugins_sub">Edit plugins.ini and plugins-*.ini, then save.</string>
+    <string name="plugins_file_label">File</string>
+    <string name="plugins_search_hint">Search plugins...</string>
+    <string name="plugins_add">ADD</string>
+    <string name="plugins_save">Save</string>
+    <string name="plugins_saved">plugins file saved</string>
+    <string name="plugins_empty">No plugins*.ini found - install addons first</string>
+    <string name="plugins_rename_title">Rename plugin</string>
+    <string name="plugins_add_title">Add plugin</string>
+    <string name="plugins_add_hint">name.amxx</string>
+</resources>

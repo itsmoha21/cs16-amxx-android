@@ -1,0 +1,407 @@
+name: C/C++ CI
+
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - '**.md'
+      - '.github/**'
+
+  pull_request:
+    types: [opened, reopened, synchronize]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  windows:
+    name: 'Windows'
+    runs-on: windows-2025
+
+    env:
+      solution: 'msvc/ReGameDLL.sln'
+      buildPlatform: 'Win32'
+      buildRelease: 'Release'
+      buildReleasePlay: 'Release Play'
+      buildTests: 'Tests'
+
+    steps:
+      - name: Configure
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+# TODO: add support of 141_xp toolchain at VS2022+
+#      - name: Install v140, v141 and v142 toolsets
+#        shell: cmd
+#        run: |
+#          "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vs_installer.exe" modify ^
+#          --installPath "C:\Program Files\Microsoft Visual Studio\2022\Enterprise" ^
+#          --add Microsoft.VisualStudio.Component.WindowsXP ^
+#          --add Microsoft.VisualStudio.Component.VC.v140 ^
+#          --add Microsoft.VisualStudio.Component.VC.v140.x86.x64 ^
+#          --add Microsoft.VisualStudio.Component.VC.v140.xp ^
+#          --add Microsoft.VisualStudio.Component.VC.140.CRT ^
+#          --add Microsoft.VisualStudio.Component.VC.v141 ^
+#          --add Microsoft.VisualStudio.Component.VC.v141.x86.x64 ^
+#          --add Microsoft.VisualStudio.Component.VC.v141.xp ^
+#          --add Microsoft.VisualStudio.Component.VC.v142 ^
+#          --add Microsoft.VisualStudio.Component.VC.v142.x86.x64 ^
+#          --quiet --norestart
+
+      - name: Select PlatformToolset
+        id: select_toolset
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs2019 = & $vswhere -products * -version "[16.0,17.0)" -property installationPath -latest
+          $vs2022 = & $vswhere -products * -version "[17.0,)" -property installationPath -latest
+
+          if ($vs2019) {
+            "toolset=v140_xp" >> $env:GITHUB_OUTPUT
+            Write-Host "Selected v140_xp toolset"
+          } elseif ($vs2022) {
+            "toolset=v143" >> $env:GITHUB_OUTPUT
+            Write-Host "Selected v143 toolset"
+          } else {
+            Write-Error "No suitable Visual Studio installation found"
+            exit 1
+          }
+
+      - name: Build and Run unittests
+        run: |
+          $toolset = '${{ steps.select_toolset.outputs.toolset }}'
+          msbuild ${{ env.solution }} -p:Configuration="${{ env.buildTests }}" /t:Clean,Build /p:Platform=${{ env.buildPlatform }} /p:PlatformToolset=$toolset /p:XPDeprecationWarning=false
+          .\"msvc\Tests\mp.exe"
+          If ($LASTEXITCODE -ne 0 -And
+          $LASTEXITCODE -ne 3)
+          {[Environment]::Exit(1)}
+        shell: "pwsh"
+
+      - name: Build
+        run: |
+          $toolset = '${{ steps.select_toolset.outputs.toolset }}'
+          msbuild ${{ env.solution }} -p:Configuration="${{ env.buildRelease }}" /t:Clean,Build /p:Platform=${{ env.buildPlatform }} /p:PlatformToolset=$toolset /p:XPDeprecationWarning=false
+          msbuild ${{ env.solution }} -p:Configuration="${{ env.buildReleasePlay }}" /t:Clean,Build /p:Platform=${{ env.buildPlatform }} /p:PlatformToolset=$toolset /p:XPDeprecationWarning=false
+      - name: Get rcedit from chocolatey
+        shell: pwsh
+        run: |
+          choco install rcedit -y
+
+      - name: Move files
+        run: |
+          mkdir publish\debug
+          mkdir publish\tests
+          mkdir publish\bin\win32\cstrike\dlls
+          move "msvc\${{ env.buildReleasePlay }}\mp.dll" publish\tests\mp.dll
+          move msvc\${{ env.buildRelease }}\mp.dll publish\bin\win32\cstrike\dlls\mp.dll
+          move msvc\${{ env.buildRelease }}\mp.pdb publish\debug\mp.pdb
+
+      - name: Get app version
+        id: get_version
+        shell: pwsh
+        run: |
+          $versionFile = "regamedll/version/appversion.h"
+          if (-not (Test-Path $versionFile)) {
+            Write-Error "Version file not found: $versionFile"
+            exit 1
+          }
+
+          $content = Get-Content $versionFile
+          foreach ($line in $content) {
+            if ($line -match '^\s*#define\s+APP_VERSION\s+"([^"]+)"') {
+              $version = $matches[1]
+              "version=$version" >> $env:GITHUB_OUTPUT
+              Write-Host "Found version: $version"
+              exit 0
+            }
+          }
+          Write-Error "APP_VERSION not found in file"
+          exit 1
+
+      - name: Show version
+        run: echo "Version is ${{ steps.get_version.outputs.version }}"
+
+      - name: Import PFX and sign
+        if: github.event_name != 'pull_request'
+        env:
+          KEY_PFX_PASS: ${{ secrets.KEY_PFX_PASS }}
+        # https://github.com/actions/runner-images/blob/main/images/windows/Windows2025-Readme.md
+        run: |
+               $pfxBase64 = "${{ secrets.KEY_PFX_B64 }}"
+               [IO.File]::WriteAllBytes("${{ github.workspace }}\signing-cert.pfx", [Convert]::FromBase64String($pfxBase64))
+               certutil -f -p "${{ secrets.KEY_PFX_PASS }}" -importPFX "${{ github.workspace }}\signing-cert.pfx"
+               & 'C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x86\signtool.exe' sign /a /f "${{ github.workspace }}\signing-cert.pfx"  /p $env:KEY_PFX_PASS /d "Regamedll_CS is a result of reverse engineering of original library mod HLDS (build 6153beta) using DWARF debug info embedded into linux version of HLDS, cs.so" /du "https://rehlds.dev/" /tr "http://timestamp.digicert.com" /td sha256 /fd sha256 /v ${{ github.workspace }}\publish\bin\win32\cstrike\dlls\mp.dll
+               Remove-Item -Recurse -Force "${{ github.workspace }}\signing-cert.pfx"
+        shell: "pwsh"
+
+      - name: Edit resources at windows binaries
+        run: |
+          rcedit ${{ github.workspace }}\publish\bin\win32\cstrike\dlls\mp.dll --set-version-string ProductName "Regamedll_CS - mp.dll" --set-file-version "${{ steps.get_version.outputs.version }}" --set-product-version "${{ steps.get_version.outputs.version }}" --set-version-string FileDescription "Regamedll_CS (mp.dll) - provide more stable (than official) version of Counter-Strike game with extended API for mods and plugins, Commit: $env:GITHUB_SHA" --set-version-string "Comments" "Regamedll_CS is a result of reverse engineering of original library mod HLDS (build 6153beta) using DWARF debug info embedded into linux version of HLDS, cs.so. Commit: $env:GITHUB_SHA" --set-version-string CompanyName "ReHLDS Dev Team" --set-version-string LegalCopyright "Copyright 2025 Valve, ReHLDS DevTeam" --set-icon regamedll/msvc/icon.ico
+        shell: "pwsh"
+
+      - name: Deploy artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: win32
+          path: publish/*
+
+  testdemos:
+    name: 'Test demos'
+    runs-on: ubuntu-latest
+    container: rehldsorg/testdemos:latest
+    needs: [windows]
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: /opt/HLDS
+
+    strategy:
+      fail-fast: false
+      matrix:
+        test: [
+          { file: 'cstrike-basic-1',    desc: 'CS: Testing jumping, scenarios, shooting etc' },
+        ]
+
+    steps:
+      - name: Deploying windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: win32
+
+      - name: Setup dependencies
+        run: |
+          chown root ~
+          rsync -a deps/regamedll/* .
+          mv $GITHUB_WORKSPACE/tests/mp.dll cstrike/dlls/mp.dll
+
+      - name: Play test
+        env:
+          demo: ${{ matrix.test.file }}
+          desc: ${{ matrix.test.desc }}
+        run: ./runTest.sh
+
+  linux:
+    name: 'Linux'
+    runs-on: ubuntu-latest
+    container: debian:11-slim
+
+    steps:
+      - name: Install dependencies
+        run: |
+          # Debian 11 reached end of LTS on 2026-08-31: the bullseye-security
+          # suite is frozen and its pool is being pruned from deb.debian.org.
+          # Keep the same toolchain, but fetch the base suite from the Debian
+          # archive and pin the security suite to its last complete snapshot.
+          # The security suite is fetched from the cloudflare snapshot mirror:
+          # plain snapshot.debian.org throttles CI bursts with connection
+          # resets, and https needs ca-certificates, which debian:11-slim
+          # does not ship, so bootstrap it from the archive first.
+          cat > /etc/apt/sources.list <<'EOF'
+          deb http://archive.debian.org/debian bullseye main
+          deb http://archive.debian.org/debian bullseye-updates main
+          EOF
+          apt-get -o Acquire::Check-Valid-Until=false update
+          apt-get install -y --no-install-recommends ca-certificates
+          echo 'deb https://snapshot-cloudflare.debian.org/archive/debian-security/20260831T000000Z bullseye-security main' > /etc/apt/sources.list.d/bullseye-security.list
+          apt-get -o Acquire::Check-Valid-Until=false -o Acquire::Retries=5 update
+          apt-get -o Acquire::Retries=5 install -y \
+            gcc-multilib g++-multilib \
+            build-essential \
+            libc6-dev libc6-dev-i386 \
+            git cmake rsync \
+            g++ gcc
+
+      - name: Configure
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: GPG Import
+        run: |
+          echo "${{ secrets.PUB_ASC }}" > "${{ secrets.PUB_ASC_FILE }}"
+          echo "${{ secrets.KEY_ASC }}" > "${{ secrets.KEY_ASC_FILE }}"
+
+          # Import the public key
+          gpg --batch --yes --import "${{ secrets.PUB_ASC_FILE }}"
+          if [[ $? -ne 0 ]]; then
+            echo "Error: Failed to import the public key"
+            exit 1
+          fi
+
+          # Import the private key
+          gpg --batch --yes --import "${{ secrets.KEY_ASC_FILE }}"
+          if [[ $? -ne 0 ]]; then
+            echo "Error: Failed to import the private key"
+            exit 2
+          fi
+
+          # Extract the fingerprint of the imported public key
+          GPG_LINUX_FINGERPRINT=$(gpg --list-keys --with-colons | grep '^fpr' | head -n 1 | cut -d: -f10)
+
+          # Check if the fingerprint was extracted
+          if [[ -z "$GPG_LINUX_FINGERPRINT" ]]; then
+            echo "Error: Failed to extract the fingerprint of the key"
+            exit 3
+          fi
+
+          # Set the trust level for the key
+          echo "$GPG_LINUX_FINGERPRINT:6:" | gpg --batch --import-ownertrust
+          if [ $? -ne 0 ]; then
+            echo "Error: Failed to set trust for the key $GPG_LINUX_FINGERPRINT"
+            exit 4
+          fi
+
+          echo "Key $GPG_LINUX_FINGERPRINT successfully imported and trusted"
+          gpg --list-keys
+
+          #export for global use
+          echo "GPG_LINUX_FINGERPRINT=$GPG_LINUX_FINGERPRINT" >> $GITHUB_ENV
+        shell: bash
+        if: github.event_name != 'pull_request'
+
+      - name: Build and Run unittests
+        run: |
+          rm -rf build && CC=gcc CXX=g++ cmake -DCMAKE_BUILD_TYPE=Unittests -B build && cmake --build build -j8
+          retVal=0
+          ./build/regamedll/cs 2> /dev/null > result.log || retVal=$?
+          while read line; do
+            if [[ ${line} == *"Warning in test"* ]] ; then
+              echo -e "\e[2;38m$line"
+            elif [[ ${line} == *"Failure in test"* ]] ; then
+              echo -e "\e[1;31m$line"
+            else
+              echo -e "\e[0;33m$line"
+            fi
+          done <<< $(cat result.log)
+
+          if [ $retVal -ne 0 ] && [ $retVal -ne 3 ]; then
+            echo -e "\e[30;41mExit code: $retVal\e[0m"
+            exit 1 # Unittest failed
+          else
+            echo -e "\e[30;43mExit code: $retVal\e[0m"
+          fi
+        shell: bash
+
+      - name: Build using GCC Compiler
+        run: |
+          rm -rf build && CC=gcc CXX=g++ cmake -B build && cmake --build build -j8
+
+      - name: Prepare CSSDK
+        run: |
+          mkdir -p publish/cssdk
+          rsync -a regamedll/extra/cssdk/ publish/cssdk/ --exclude=.git --exclude=LICENSE --exclude=README.md
+
+      - name: Move files
+        run: |
+          mkdir -p publish/bin/linux32/cstrike/dlls
+          mv build/regamedll/cs.so publish/bin/linux32/cstrike/dlls/cs.so 2>/dev/null || true
+          mv regamedll/version/appversion.h publish/appversion.h
+          mv dist/ publish/
+
+      - name: Run GLIBC/ABI version compat test
+        run: |
+          binaries=(
+            "publish/bin/linux32/cstrike/dlls/cs.so"
+          )
+          bash ./regamedll/version/glibc_test.sh ${binaries[@]}
+          if [[ $? -ne 0 ]]; then
+            exit 1 # Assertion failed
+          fi
+        shell: bash
+
+      - name: Deploy artifacts
+        uses: actions/upload-artifact@v4
+        id: upload-job
+        with:
+          name: linux32
+          path: publish/*
+
+  publish:
+    name: 'Publish'
+    runs-on: ubuntu-latest
+    needs: [windows, testdemos, linux]
+
+    steps:
+      - name: Deploying linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux32
+
+      - name: Deploying windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: win32
+
+      - name: Reading appversion.h
+        run: |
+          if [ -e appversion.h ]; then
+            APP_VERSION=$(cat appversion.h | grep -wi '#define APP_VERSION_STRD' | sed -e 's/#define APP_VERSION_STRD[ \t\r\n\v\f]\+\(.*\)/\1/i' -e 's/\r//g')
+            if [ $? -ne 0 ]; then
+              APP_VERSION=""
+            else
+              # Remove quotes
+              APP_VERSION=$(echo $APP_VERSION | xargs)
+              echo "APP_VERSION=${APP_VERSION}" >> $GITHUB_ENV
+            fi
+          fi
+          rm -f appversion.h
+
+      - name: Packaging binaries
+        id: packaging-job
+        if: |
+          github.event_name == 'release' &&
+          github.event.action == 'published' &&
+          startsWith(github.ref, 'refs/tags/')
+        run: |
+          rsync -a dist/ bin/win32/cstrike
+          rsync -a dist/ bin/linux32/cstrike
+
+          # new runner, niw signs
+          echo "${{ secrets.PUB_ASC }}" > "${{ secrets.PUB_ASC_FILE }}"
+          echo "${{ secrets.KEY_ASC }}" > "${{ secrets.KEY_ASC_FILE }}"
+          gpg --batch --yes --import "${{ secrets.PUB_ASC_FILE }}"
+          gpg --batch --yes --import "${{ secrets.KEY_ASC_FILE }}"
+          GPG_LINUX_FINGERPRINT=$(gpg --list-keys --with-colons | grep '^fpr' | head -n 1 | cut -d: -f10)
+          echo "$GPG_LINUX_FINGERPRINT:6:" | gpg --batch --import-ownertrust
+          echo "GPG_LINUX_FINGERPRINT=$GPG_LINUX_FINGERPRINT" >> $GITHUB_ENV
+
+          sign_file() {
+            local file=$1
+            gpg --batch --yes --detach-sign --armor -u "$GPG_LINUX_FINGERPRINT" "$file"
+            if [ $? -ne 0 ]; then
+              echo "Error: Failed to sign $file"
+              exit 2
+            fi
+            echo "$file signed successfully."
+          }
+
+          # Pack and sign final archive
+          7z a -tzip regamedll-bin-${{ env.APP_VERSION }}.zip bin/ cssdk/
+          sign_file "regamedll-bin-${{ env.APP_VERSION }}.zip"
+
+      - name: Publish artifacts
+        uses: softprops/action-gh-release@v2
+        id: publish-job
+        if: |
+          startsWith(github.ref, 'refs/tags/') &&
+          steps.packaging-job.outcome == 'success'
+        with:
+          files: |
+            *.zip
+            *.7z
+            *.asc
+        env:
+          GITHUB_TOKEN: ${{ secrets.API_TOKEN }}
+

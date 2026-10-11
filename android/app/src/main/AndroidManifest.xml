@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- AMX Mod X addons auto-install writes into /storage/emulated/0/xash -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+
+    <application
+        android:forceQueryable="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher"
+        tools:targetApi="r">
+
+        <activity
+            android:name=".MainActivity"
+            android:theme="@android:style/Theme.NoTitleBar"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="su.xash.engine.MOD" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".CompilerActivity"
+            android:theme="@android:style/Theme.NoTitleBar"
+            android:exported="false" />
+
+        <activity
+            android:name=".PluginsActivity"
+            android:theme="@android:style/Theme.NoTitleBar"
+            android:exported="false" />
+
+                <activity
+                        android:name=".CZeroActivity"
+                        android:icon="@mipmap/ic_launcher_cz"
+                        android:label="CSCZClient"
+                        android:roundIcon="@mipmap/ic_launcher_cz"
+                        android:exported="true">
+                        <intent-filter>
+                                <action android:name="android.intent.action.MAIN" />
+
+                                <category android:name="android.intent.category.LAUNCHER" />
+                        </intent-filter>
+
+                        <intent-filter>
+                                <action android:name="su.xash.engine.MOD" />
+                        </intent-filter>
+                </activity>
+    </application>
+
+    <queries>
+        <package android:name="su.xash.engine" />
+        <package android:name="su.xash.engine.test" />
+    </queries>
+</manifest>
