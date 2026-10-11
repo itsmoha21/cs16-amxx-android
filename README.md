@@ -36,7 +36,19 @@ Tap each APK file and install it. If Android asks, allow
 ### Step 2 — Copy your game files
 
 These apps do **not** include the copyrighted CS 1.6 game files. Copy your own
-game data to the phone storage. The structure looks like this:
+game data to the phone storage:
+
+```
+/storage/emulated/0/xash/
+├── valve/    ← Half-Life base files
+└── cstrike/  ← Counter-Strike files (maps, models, sound, ...)
+```
+
+The easiest way to copy files is any file manager. Create the `xash` folder
+yourself if it is not there yet. On first launch the game app can also create
+the folder structure.
+
+The full structure looks like this:
 
 ```
 /storage/emulated/0/xash/
@@ -58,10 +70,6 @@ game data to the phone storage. The structure looks like this:
     ├── sound/weapons/
     └── ...
 ```
-
-Create the `xash` folder yourself if it is not there yet — any file manager
-works. `valve/` comes with the base game (Half-Life) and `cstrike/` with
-Counter-Strike 1.6.
 
 ### Step 3 — Install the addons
 
