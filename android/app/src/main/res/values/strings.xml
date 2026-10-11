@@ -37,6 +37,8 @@
     <string name="menu_addons_ok">Addons bundle: installed</string>
     <string name="menu_addons_missing">Addons bundle: will install on launch</string>
     <string name="menu_reinstalled">Addons re-installed</string>
+<string name="storage_banner_title">Storage access required</string>
+<string name="storage_banner_sum">Tap to allow access so the addons can install and the game can run</string>
     <string name="menu_on">ON</string>
     <string name="menu_off">OFF</string>
 

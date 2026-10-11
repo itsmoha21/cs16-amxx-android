@@ -26,7 +26,9 @@ public class MainActivity extends Activity {
 
         // bump this when assets/addons.zip is updated so the bundle
         // gets re-extracted into the game directory
-        private static final String ADDONS_VERSION = "amxx-1.9.0.5303";
+        // (r2: modules.ini always refreshed so the sqlite/"sqlx" class
+        //  that plugins like amx_gag need is enabled)
+        private static final String ADDONS_VERSION = "amxx-1.9.0.5303-r2";
 
         private boolean mPermissionAsked = false;
 
@@ -44,7 +46,15 @@ public class MainActivity extends Activity {
                                 .getBoolean( "permission_asked", false );
                 }
 
+                // Always render the launcher UI first so the user is never
+                // left on a blank/stuck screen. If storage access is missing,
+                // the menu shows a tappable "storage access required" banner
+                // and (on the very first ask) we open the system settings page
+                // once so they can grant it. onResume() finishes the install
+                // once the permission is granted.
                 if( !hasStorageAccess() ) {
+                        showMenu();
+
                         if( !mPermissionAsked ) {
                                 mPermissionAsked = true;
                                 requestStorageAccess();
@@ -65,16 +75,14 @@ public class MainActivity extends Activity {
         protected void onResume() {
                 super.onResume();
 
-                // continue after the user granted storage access in system settings
-                if( mPermissionAsked ) {
-                        if( hasStorageAccess() ) {
-                                mPermissionAsked = false;
-                                proceed();
-                        } else {
-                                Toast.makeText( this,
-                                        "Please grant storage access to install the addons and run the game",
-                                        Toast.LENGTH_LONG ).show();
-                        }
+                // finish the install once the user grants storage access in
+                // system settings; otherwise just keep the banner in sync
+                // (the persistent banner is the call-to-action, no toast spam)
+                if( hasStorageAccess() ) {
+                        mPermissionAsked = false;
+                        proceed();
+                } else {
+                        updateStorageBanner();
                 }
         }
 
@@ -139,30 +147,46 @@ public class MainActivity extends Activity {
 
         private void requestStorageAccess() {
                 getPreferences( MODE_PRIVATE ).edit().putBoolean( "permission_asked", true ).apply();
+                updateStorageBanner();
 
                 if( Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ) {
+                        // 1) dedicated per-app "All files access" page
                         try {
-                                Intent intent = new Intent( Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                                        Uri.parse( "package:" + getPackageName() ));
-                                startActivity( intent );
-                        } catch( Exception e ) {
-                                try {
-                                        startActivity( new Intent( Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION ));
-                                } catch( Exception ex ) {
-                                        Log.w( TAG, "no all-files-access settings page", ex );
-                                        proceed(); // nothing we can do, try anyway
-                                        return;
-                                }
+                                startActivity( new Intent(
+                                        Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                                        Uri.parse( "package:" + getPackageName() )));
+                                return;
+                        } catch( Exception ignored ) {
                         }
-                        Toast.makeText( this,
-                                "Please grant All files access to install the AMX Mod X addons",
-                                Toast.LENGTH_LONG ).show();
+
+                        // 2) the general "All files access" list (some OEM skins
+                        //    lack the per-app page)
+                        try {
+                                startActivity( new Intent(
+                                        Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION ));
+                                return;
+                        } catch( Exception ignored ) {
+                        }
+
+                        // 3) app details - "All files access" is reachable from
+                        //    Special access on any device (Samsung One UI, ...)
+                        try {
+                                startActivity( new Intent(
+                                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                        Uri.parse( "package:" + getPackageName() )));
+                        } catch( Exception ex ) {
+                                Log.w( TAG, "no storage settings page", ex );
+                        }
                 } else if( Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ) {
                         requestPermissions( new String[] { android.Manifest.permission.WRITE_EXTERNAL_STORAGE }, 1 );
-                } else {
-                        mPermissionAsked = false;
-                        proceed();
                 }
+        }
+
+        private void updateStorageBanner() {
+                android.view.View banner = findViewById( R.id.storage_banner );
+                if( banner != null )
+                        banner.setVisibility( hasStorageAccess()
+                                ? android.view.View.GONE : android.view.View.VISIBLE );
         }
 
         @Override
@@ -262,7 +286,16 @@ public class MainActivity extends Activity {
                         // (bundle update for fixed .so files) keep the copies
                         // already on disk instead of resetting them to stock;
                         // a fresh install still extracts everything.
-                        if( outFile.isFile() && outFile.getPath().contains(
+                        //
+                        // modules.ini is the exception - it is the module loader
+                        // list and MUST match the shipped .so set (it enables
+                        // sqlite, which provides the "sqlx" class that plugins
+                        // like amx_gag require). A stale/vanilla modules.ini left
+                        // from an old install would drop those modules, so it is
+                        // always refreshed on a bundle update.
+                        boolean isModulesIni = entry.getName().endsWith( "modules.ini" );
+
+                        if( !isModulesIni && outFile.isFile() && outFile.getPath().contains(
                                         File.separator + "addons" + File.separator + "amxmodx"
                                         + File.separator + "configs" + File.separator )) {
                                 Log.i( TAG, "keeping user config: " + entry.getName() );
@@ -496,6 +529,11 @@ public class MainActivity extends Activity {
                                 new android.view.View.OnClickListener() {
                         @Override
                         public void onClick( android.view.View v ) {
+                                if( !hasStorageAccess() ) {
+                                        requestStorageAccess();
+                                        return;
+                                }
+
                                 getPreferences( MODE_PRIVATE ).edit()
                                         .remove( "addons_version" ).apply();
                                 try {
@@ -522,10 +560,29 @@ public class MainActivity extends Activity {
                 } catch( Throwable ignored ) {
                 }
 
+                // storage banner: tapping re-opens the permission settings page
+                android.view.View storageBanner = findViewById( R.id.storage_banner );
+                if( storageBanner != null ) {
+                        storageBanner.setOnClickListener(
+                                        new android.view.View.OnClickListener() {
+                                @Override
+                                public void onClick( android.view.View v ) {
+                                        requestStorageAccess();
+                                }
+                        });
+                }
+                updateStorageBanner();
+
                 refreshMenuStatus();
         }
 
         private void onLaunchPressed() {
+                if( !hasStorageAccess() ) {
+                        // can't install or run without storage - route to settings
+                        requestStorageAccess();
+                        return;
+                }
+
                 try {
                         extractAddonsIfNeeded();
                 } catch( Throwable t ) {
