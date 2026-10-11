@@ -1,4 +1,4 @@
-# CS16 AMXX Android
+# CS16 FRESH
 
 Counter-Strike 1.6 for Android with **AMX Mod X 1.9**, **Metamod** and **YaPB bots**.
 
