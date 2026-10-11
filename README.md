@@ -1,14 +1,17 @@
 # CS16 AMXX Android
 
 Counter-Strike 1.6 for Android with **AMX Mod X 1.9**, **Metamod** and **YaPB bots**.
-Everything is included — you do not need a PC to install or to make plugins.
+
+> **Built on PC.** The APKs in the [Releases](../../releases) page are compiled
+> and signed on the owner's own Windows machine from this exact source — there
+> are no GitHub builds here. Everything you need is in the release files.
 
 Two apps work together:
 
 | App | What it does |
 |-----|--------------|
-| **CS16AMXX Engine** | The game engine (Xash3D FWGS) — video, audio, touch controls |
-| **CS16AMXX Game** | Launches CS 1.6, installs the AMXX addons, compiles `.sma` plugins on the phone, edits `plugins.ini` |
+| **Game app** (`cs16client-app-git-release.apk`) | Launches CS 1.6, installs the AMXX addons, compiles `.sma` plugins on the phone, edits `plugins*.ini` |
+| **Engine app** (`app-continuous.apk`) | The Xash3D FWGS engine — video, audio, touch controls, needed to run the game |
 
 ---
 
@@ -18,12 +21,12 @@ Get these 4 files from the [Releases page](../../releases):
 
 | File | What it is |
 |------|-----------|
-| `CS16AMXX-Game-v1.35.apk` | the game app |
-| `CS16AMXX-Engine-v1.35.apk` | the engine app |
-| `CS16AMXX-cstrike-addons.zip` | AMXX addons for `cstrike/` (also bundled inside the game app) |
-| `CS16AMXX-valve-addons.zip` | AMXX addons for `valve/` |
+| `cs16client-app-git-release.apk` | the game app |
+| `app-continuous.apk` | the engine app |
+| `cstrike-addons.zip` | AMXX addons for `cstrike/` (also bundled inside the game app) |
+| `valve-addons.zip` | AMXX addons for `valve/` |
 
-## Install (4 steps)
+## Install
 
 ### Step 1 — Install both APKs
 
@@ -33,30 +36,50 @@ Tap each APK file and install it. If Android asks, allow
 ### Step 2 — Copy your game files
 
 These apps do **not** include the copyrighted CS 1.6 game files. Copy your own
-game data to the phone storage:
+game data to the phone storage. The structure looks like this:
 
 ```
 /storage/emulated/0/xash/
-├── valve/    ← Half-Life base files
-└── cstrike/  ← Counter-Strike files (maps, models, sound, ...)
+├── valve/                 ← Half-Life base files
+│   ├── maps/
+│   ├── models/
+│   ├── sound/
+│   ├── gfx/
+│   ├── media/
+│   ├── config.cfg
+│   └── ...
+└── cstrike/               ← Counter-Strike files
+    ├── maps/
+    ├── models/
+    ├── sound/
+    ├── gfx/
+    ├── sprites/
+    ├── sound/ambience/
+    ├── sound/weapons/
+    └── ...
 ```
 
-Any file manager works. Create the `xash` folder yourself if it is not there yet.
+Create the `xash` folder yourself if it is not there yet — any file manager
+works. `valve/` comes with the base game (Half-Life) and `cstrike/` with
+Counter-Strike 1.6.
 
 ### Step 3 — Install the addons
 
-1. Open the **CS16AMXX Game** app.
-2. The STATUS card shows what is missing.
+1. Open the **Game app** (`cs16client-app-git-release.apk`).
+2. The **STATUS** cards at the top show what is already installed and what is
+   still missing.
 3. Turn on the **AMX Mod X** switch (and **YaPB bots** if you want bots).
-4. Tap **Re-install addons** — the addons (AMXX + Metamod + bots) are bundled
-   inside the app and get extracted automatically.
-   *(Manual alternative: unzip `CS16AMXX-cstrike-addons.zip` into
-   `/storage/emulated/0/xash/` so it merges with your `cstrike/` folder.)*
+4. Tap **Re-install addons** — the addons (AMX Mod X + Metamod + bots) are
+   bundled inside the app and get extracted to the right folders automatically.
+
+   Manual alternative: unzip `cstrike-addons.zip` into
+   `/storage/emulated/0/xash/` so it merges with your `cstrike/` folder
+   (same for `valve-addons.zip`).
 
 ### Step 4 — Play
 
-Tap **LAUNCH**. The game starts with AMXX loaded. Bots: use `bot_add`,
-`bot_quota` and the other YaPB commands.
+Tap **LAUNCH**. The game starts with AMX Mod X loaded. Bots: use the usual
+YaPB commands — `bot_add`, `bot_quota 4`, `bot_knives_only`, etc.
 
 ---
 
@@ -92,8 +115,8 @@ You need: [Android Studio](https://developer.android.com/studio) (it provides
 the SDK, NDK and JDK).
 
 ```
-git clone --recursive https://github.com/itsmoha21/cs16-amxx-android.git
-cd cs16-amxx-android/android
+git clone --recursive https://github.com/itsmoha21/cs16fresh.git
+cd cs16fresh/android
 ./gradlew --no-daemon :app:assembleGitRelease
 ```
 
