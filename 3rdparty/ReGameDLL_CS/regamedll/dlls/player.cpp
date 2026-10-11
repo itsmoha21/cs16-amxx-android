@@ -5478,6 +5478,21 @@ pt_end:
 
 			while (pPlayerItem)
 			{
+				// Guard: third-party plugins that write through unknown pdata
+				// offsets (e.g. 32-bit offsets hitting the arm64 layout) can
+				// leave a corrupt or dangling entry in this chain. Validate
+				// before dereferencing: real items are pointer-aligned and
+				// belong to this player. On a bad entry, drop the slot's chain
+				// and log it instead of crashing.
+				if (reinterpret_cast<size_t>(pPlayerItem) & (sizeof(void *) - 1)
+				    || pPlayerItem->m_pPlayer != this)
+				{
+					ALERT(at_logged, "[ReGameDLL] \"%s\" corrupt weapon chain in slot %d cleared (item=%p).\n",
+						STRING(pev->netname), i, pPlayerItem);
+					m_rgpPlayerItems[i] = nullptr;
+					break;
+				}
+
 				CBasePlayerWeapon *gun = (CBasePlayerWeapon *)pPlayerItem->GetWeaponPtr();
 
 				if (gun && gun->UseDecrement())
