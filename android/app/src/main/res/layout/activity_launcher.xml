@@ -349,6 +349,59 @@
                     android:background="#2A303B" />
 
                 <LinearLayout
+                    android:id="@+id/row_ebot"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/row_pressed"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:layout_width="22dp"
+                        android:layout_height="22dp"
+                        android:src="@drawable/ic_bot" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginLeft="11dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:fontFamily="sans-serif-medium"
+                            android:text="@string/menu_enable_ebot"
+                            android:textColor="#E8ECF4"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="@string/menu_enable_ebot_sum"
+                            android:textColor="#7E8CA0"
+                            android:textSize="12sp" />
+
+                    </LinearLayout>
+
+                    <su.xash.cs16client.PillSwitch
+                        android:id="@+id/menu_enable_ebot"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginLeft="8dp" />
+
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="11dp"
+                    android:layout_marginBottom="11dp"
+                    android:background="#2A303B" />
+
+                <LinearLayout
                     android:id="@+id/menu_reinstall"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

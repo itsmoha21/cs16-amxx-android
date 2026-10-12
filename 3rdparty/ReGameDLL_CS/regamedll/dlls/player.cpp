@@ -5344,6 +5344,31 @@ void CBasePlayer::UpdatePlayerSound()
 	gpGlobals->v_forward.z = 0;
 }
 
+// Guard used by the pointer sanity checks below: true when a pointer slot
+// holds a value that cannot be a real object address. Unaligned values are
+// corrupt on any architecture. The low address range test is 64-bit only:
+// real objects live above 4 GiB there while a float zero-extended into a
+// pointer slot stays below it. On 32-bit builds size_t never reaches 4 GiB,
+// so applying the range test there would flag every valid pointer (and wipe
+// every player's weapon state each frame).
+static bool IsCorruptObjectPointer(const void *ptr)
+{
+	if (!ptr)
+		return false;
+
+	const size_t value = reinterpret_cast<size_t>(ptr);
+
+	if (value & (sizeof(void *) - 1))
+		return true;
+
+#if defined(__LP64__) || defined(_WIN64)
+	if (value < 0x100000000ull)
+		return true;
+#endif
+
+	return false;
+}
+
 LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, PostThink)
 
 void EXT_FUNC CBasePlayer::__API_HOOK(PostThink)()
@@ -5484,8 +5509,7 @@ pt_end:
 				// before dereferencing: real items are pointer-aligned and
 				// belong to this player. On a bad entry, drop the slot's chain
 				// and log it instead of crashing.
-				if (reinterpret_cast<size_t>(pPlayerItem) & (sizeof(void *) - 1)
-				    || pPlayerItem->m_pPlayer != this)
+				if (IsCorruptObjectPointer(pPlayerItem) || pPlayerItem->m_pPlayer != this)
 				{
 					ALERT(at_logged, "[ReGameDLL] \"%s\" corrupt weapon chain in slot %d cleared (item=%p).\n",
 						STRING(pev->netname), i, pPlayerItem);
@@ -7439,6 +7463,32 @@ void CBasePlayer::ItemPreFrame()
 void CBasePlayer::ItemPostFrame()
 {
 	static int fInSelect = FALSE;
+
+	// Guard: plugin pdata writes can leave garbage pointers here (e.g. a
+	// float written into a pointer slot). Any float value zero-extended to
+	// 64 bits is below 4 GiB while real objects are not, so a range test
+	// kills that whole corruption class without dereferencing anything
+	// (64-bit builds only; see IsCorruptObjectPointer).
+	{
+		// EHANDLE content read as raw bytes: its conversion operators may
+		// dereference the stored pointer, so validate the bits first.
+		edict_t *pTankPtr = nullptr;
+		memcpy(&pTankPtr, &m_pTank, sizeof pTankPtr);
+		if (IsCorruptObjectPointer(pTankPtr))
+		{
+			ALERT(at_logged, "[ReGameDLL] \"%s\" corrupt m_pTank %p cleared.\n",
+				STRING(pev->netname), pTankPtr);
+			m_pTank = nullptr;
+		}
+	}
+
+	if (m_pActiveItem
+	    && (IsCorruptObjectPointer(m_pActiveItem) || m_pActiveItem->m_pPlayer != this))
+	{
+		ALERT(at_logged, "[ReGameDLL] \"%s\" corrupt m_pActiveItem %p cleared.\n",
+			STRING(pev->netname), m_pActiveItem);
+		m_pActiveItem = nullptr;
+	}
 
 	// check if the player is using a tank
 	if (m_pTank)

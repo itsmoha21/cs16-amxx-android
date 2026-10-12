@@ -24,11 +24,24 @@ import java.util.zip.ZipInputStream;
 public class MainActivity extends Activity {
         private static final String TAG = "CS16Client";
 
-        // bump this when assets/addons.zip is updated so the bundle
-        // gets re-extracted into the game directory
-        // (r2: modules.ini always refreshed so the sqlite/"sqlx" class
-        //  that plugins like amx_gag need is enabled)
-        private static final String ADDONS_VERSION = "amxx-1.9.0.5303-r2";
+        // Version stamp for assets/addons.zip. Tied to the app version so
+        // every new build re-extracts the bundle - a manual bump was easy
+        // to forget and updated .so files silently stayed on disk after an
+        // app update ("the update didn't replace all of them").
+        // (modules.ini is always refreshed so the sqlite/"sqlx" class
+        //  that plugins like amx_gag need is enabled; amxx configs are
+        //  kept - see extractZipIfNeeded)
+        private static final String ADDONS_VERSION = "amxx-1.9.0.5303-" + BuildConfig.VERSION_NAME;
+
+        // separate gate for the bot asset sync (yaPB conf/graphs, eBot
+        // configs/waypoints, ReGameDLL BotProfile/BotChatter dbs) - bump
+        // this alone when those change so the addons.zip bundle stays
+        // untouched.
+        // r3: the sync ships in the APK again (the native step used to
+        //  delete the tree from the assets), the presence check covers
+        //  avatars.cfg + BotProfile.db, and those two databases are
+        //  installed to the gamedir root for the first time
+        private static final String BOT_ASSETS_VERSION = "ebot-wp-r3";
 
         private boolean mPermissionAsked = false;
 
@@ -45,6 +58,11 @@ public class MainActivity extends Activity {
                         mPermissionAsked = getPreferences( MODE_PRIVATE )
                                 .getBoolean( "permission_asked", false );
                 }
+
+                // blocking update gate: when GitHub lists a newer build the
+                // launcher offers the update and refuses to continue until
+                // it is installed (no-op when offline or up to date)
+                UpdateChecker.check( this );
 
                 // Always render the launcher UI first so the user is never
                 // left on a blank/stuck screen. If storage access is missing,
@@ -221,6 +239,9 @@ public class MainActivity extends Activity {
         }
 
         private void extractAddonsIfNeeded() throws Exception {
+                // bot packs (YaPB conf/graphs, EBot configs) ship as individual
+                // assets, not inside addons.zip - sync them onto disk first
+                extractBotAssetsIfNeeded();
                 // cstrike addons (AMX Mod X for Counter-Strike) -- this app
                 // installs ONLY the counter-strike addon pack. The valve
                 // (Half-Life) AMX addons are handled by the engine app itself
@@ -295,9 +316,16 @@ public class MainActivity extends Activity {
                         // always refreshed on a bundle update.
                         boolean isModulesIni = entry.getName().endsWith( "modules.ini" );
 
-                        if( !isModulesIni && outFile.isFile() && outFile.getPath().contains(
+                        // analyzed/user-provided waypoint files win over the
+                        // shipped pack - same policy as the bot-asset sync,
+                        // so a bundle refresh can never reset a waypoint set
+                        // the user analyzed or replaced manually
+                        boolean isWaypoint = entry.getName().endsWith( ".ewp" );
+
+                        if( !isModulesIni && outFile.isFile() && ( isWaypoint
+                                        || outFile.getPath().contains(
                                         File.separator + "addons" + File.separator + "amxmodx"
-                                        + File.separator + "configs" + File.separator )) {
+                                        + File.separator + "configs" + File.separator ))) {
                                 Log.i( TAG, "keeping user config: " + entry.getName() );
                                 zis.closeEntry();
                                 continue;
@@ -353,6 +381,7 @@ public class MainActivity extends Activity {
                         // (XASH3D_DISABLE_AMXX) and the ini contents do not matter.
                         boolean amxxEnabled = !new File( dir, "amxmodx.disabled" ).isFile();
                         boolean yapbEnabled = !new File( dir, "yapb.disabled" ).isFile();
+                        boolean ebotEnabled = !new File( dir, "ebot.disabled" ).isFile();
 
                         StringBuilder sb = new StringBuilder();
                         sb.append( ";;;\n" );
@@ -374,7 +403,8 @@ public class MainActivity extends Activity {
                                         if( !t.startsWith( "linux " ) )
                                                 continue;
                                         if( t.contains( "libmm_amxmodx.so" ) ||
-                                                t.contains( "libyapb_android_" ) )
+                                                t.contains( "libyapb_android_" ) ||
+                                                t.contains( "libebot_android_" ) )
                                                 continue;
                                         if( !custom.contains( t ) )
                                                 custom.add( t );
@@ -390,8 +420,11 @@ public class MainActivity extends Activity {
                                 sb.append( "; disabled by the AMX Mod X switch: addons/metamod/amxmodx.disabled\n" );
                         }
 
-                        // YaPB bot plugin (absolute path, ABI-dependent)
-                        if( yapbEnabled ) {
+                        // YaPB bot plugin (absolute path, ABI-dependent). EBot
+                        // and YaPB both fill the bot slots, so only one can be
+                        // loaded: the switches keep them exclusive and ebot
+                        // wins in here if both markers are somehow absent.
+                        if( yapbEnabled && !ebotEnabled ) {
                                 String nativeDir = getApplicationInfo().nativeLibraryDir;
                                 String[] abis = android.os.Build.SUPPORTED_ABIS;
                                 String yapbName = null;
@@ -407,8 +440,31 @@ public class MainActivity extends Activity {
                                                 sb.append( "linux " ).append( yapb.getAbsolutePath() ).append( "\n" );
                                         }
                                 }
+                        } else if( ebotEnabled ) {
+                                sb.append( "; YaPB bots paused: EBot is enabled (only one bot fills the slots)\n" );
                         } else {
                                 sb.append( "; YaPB bots disabled by the YaPB switch: addons/metamod/yapb.disabled\n" );
+                        }
+
+                        // EBot bot plugin (absolute path, ABI-dependent)
+                        if( ebotEnabled ) {
+                                String nativeDir = getApplicationInfo().nativeLibraryDir;
+                                String[] abis = android.os.Build.SUPPORTED_ABIS;
+                                String ebotName = null;
+                                if( abis != null && abis.length > 0 && abis[0].contains( "arm64" ) )
+                                        ebotName = "libebot_android_arm64.so";
+                                else if( abis != null && abis.length > 0 )
+                                        ebotName = "libebot_android_armv7l.so";
+
+                                if( ebotName != null && nativeDir != null ) {
+                                        File ebot = new File( nativeDir, ebotName );
+                                        if( ebot.isFile() ) {
+                                                sb.append( ";\n; EBot bot (as metamod plugin):\n" );
+                                                sb.append( "linux " ).append( ebot.getAbsolutePath() ).append( "\n" );
+                                        }
+                                }
+                        } else {
+                                sb.append( "; EBot bots disabled by the EBot switch: addons/metamod/ebot.disabled\n" );
                         }
 
                         if( !custom.isEmpty() ) {
@@ -421,7 +477,8 @@ public class MainActivity extends Activity {
                         pw.print( sb.toString() );
                         pw.close();
                         Log.i( TAG, "plugins.ini patched: " + ini.getAbsolutePath()
-                                + " (amxx=" + amxxEnabled + ", yapb=" + yapbEnabled + ")" );
+                                + " (amxx=" + amxxEnabled + ", yapb=" + yapbEnabled
+                                + ", ebot=" + ebotEnabled + ")" );
                 } catch( Throwable t ) {
                         Log.w( TAG, "plugins.ini patch failed", t );
                 }
@@ -457,7 +514,7 @@ public class MainActivity extends Activity {
                 // both switches off: bypass metamod entirely and load the
                 // original server library directly (same gate the engine
                 // menu used to send as XASH3D_DISABLE_AMXX).
-                if( !isAmxxOn() && !isYapbOn() )
+                if( !isAmxxOn() && !isYapbOn() && !isEbotOn() )
                         launch.putExtra( "env", new String[]{ "XASH3D_DISABLE_AMXX", "1" } );
 
                 startActivity( launch );
@@ -476,26 +533,41 @@ public class MainActivity extends Activity {
 
                 final PillSwitch amxxSwitch = (PillSwitch) findViewById( R.id.menu_enable_amxx );
                 final PillSwitch yapbSwitch = (PillSwitch) findViewById( R.id.menu_enable_yapb );
+                final PillSwitch ebotSwitch = (PillSwitch) findViewById( R.id.menu_enable_ebot );
 
                 amxxSwitch.setChecked( isAmxxOn() );
                 yapbSwitch.setChecked( isYapbOn() );
+                ebotSwitch.setChecked( isEbotOn() );
 
                 PillSwitch.OnCheckedChangeListener toggleListener =
                                 new PillSwitch.OnCheckedChangeListener() {
                         @Override
                         public void onCheckedChanged( PillSwitch buttonView, boolean isChecked ) {
+                                // EBot and YaPB both fill the bot slots, so only
+                                // one bot can be active: switching one on turns
+                                // the other off (setChecked re-enters this
+                                // listener, the nested write is idempotent).
+                                if( buttonView == ebotSwitch && isChecked && yapbSwitch.isChecked() )
+                                        yapbSwitch.setChecked( false );
+                                if( buttonView == yapbSwitch && isChecked && ebotSwitch.isChecked() )
+                                        ebotSwitch.setChecked( false );
+
                                 getPreferences( MODE_PRIVATE ).edit()
                                         .putBoolean( "enable_amxx", amxxSwitch.isChecked() )
                                         .putBoolean( "enable_yapb_bots", yapbSwitch.isChecked() )
+                                        .putBoolean( "enable_ebot_bots", ebotSwitch.isChecked() )
                                         .apply();
                                 writeMetaMarker( "amxmodx.disabled", !amxxSwitch.isChecked() );
                                 writeMetaMarker( "yapb.disabled", !yapbSwitch.isChecked() );
+                                writeMetaMarker( "ebot.disabled", !ebotSwitch.isChecked() );
+                                writeMetaMarker( "ebot.enabled", ebotSwitch.isChecked() );
                                 patchPluginsIni();
                                 refreshMenuStatus();
                         }
                 };
                 amxxSwitch.setOnCheckedChangeListener( toggleListener );
                 yapbSwitch.setOnCheckedChangeListener( toggleListener );
+                ebotSwitch.setOnCheckedChangeListener( toggleListener );
 
                 ((android.view.View) findViewById( R.id.row_amxx )).setOnClickListener(
                                 new android.view.View.OnClickListener() {
@@ -509,6 +581,13 @@ public class MainActivity extends Activity {
                         @Override
                         public void onClick( android.view.View v ) {
                                 yapbSwitch.toggle();
+                        }
+                });
+                ((android.view.View) findViewById( R.id.row_ebot )).setOnClickListener(
+                                new android.view.View.OnClickListener() {
+                        @Override
+                        public void onClick( android.view.View v ) {
+                                ebotSwitch.toggle();
                         }
                 });
 
@@ -638,6 +717,99 @@ public class MainActivity extends Activity {
                 }
         }
 
+        /**
+         * Bot packs (YaPB conf/graphs, EBot configs) ship as individual files
+         * under assets/addons/**, but both bots read them with plain libc
+         * fopen() against the game directory - which cannot see inside the
+         * APK. Copy them to /xash/cstrike/addons once per ADDONS_VERSION so
+         * every bot file is on disk next to the metamod plugins.
+         */
+        private void extractBotAssetsIfNeeded() {
+                SharedPreferences prefs = getPreferences( MODE_PRIVATE );
+                File base = new File( getXashDir(), "cstrike/addons" );
+
+                // the version stamp alone is not enough: if anything removes
+                // the bot files from the game folder (a cleanup app, a manual
+                // delete, a broken install) the old check would consider the
+                // assets "done" forever and never restore them - verify the
+                // key files are really on disk before skipping
+                boolean stamped = BOT_ASSETS_VERSION.equals(
+                        prefs.getString( "bot_assets_version", "" ) );
+                boolean present = new File( base, "ebot/ebot.cfg" ).isFile()
+                        && new File( base, "ebot/names.cfg" ).isFile()
+                        && new File( base, "ebot/avatars.cfg" ).isFile()
+                        && new File( base, "ebot/waypoints" ).isDirectory()
+                        && new File( base, "yapb/conf/yapb.cfg" ).isFile()
+                        && new File( getXashDir(), "cstrike/BotProfile.db" ).isFile();
+                if( stamped && present )
+                        return;
+                if( stamped )
+                        Log.w( TAG, "bot assets incomplete on disk - re-extracting" );
+                int count = 0;
+                count += copyAssetTree( "addons/yapb", new File( base, "yapb" ), false );
+                count += copyAssetTree( "addons/ebot", new File( base, "ebot" ), false );
+                // bundled waypoints never overwrite existing .ewp files -
+                // analyzed/user-provided waypoint files win over shipped ones
+                count += copyAssetTree( "addons/ebot/waypoints",
+                        new File( base, "ebot/waypoints" ), true );
+                // keep the (bot-created) waypoints directory around
+                new File( base, "ebot/waypoints" ).mkdirs();
+                // ReGameDLL's built-in bot code reads these two databases
+                // from the gamedir root (bot_profile_db cvar / BotChatter
+                // phrase init) - they ship as APK assets but nothing used
+                // to copy them to disk
+                count += copyAssetTree( "BotProfile.db",
+                        new File( getXashDir(), "cstrike/BotProfile.db" ), false );
+                count += copyAssetTree( "BotChatter.db",
+                        new File( getXashDir(), "cstrike/BotChatter.db" ), false );
+
+                prefs.edit().putString( "bot_assets_version", BOT_ASSETS_VERSION ).apply();
+                Log.i( TAG, "bot assets extracted: " + count + " files -> "
+                        + base.getAbsolutePath() );
+        }
+
+        private int copyAssetTree( String assetPath, File dest, boolean skipExisting ) {
+                int count = 0;
+                try {
+                        String[] children = getAssets().list( assetPath );
+                        if( children == null || children.length == 0 ) {
+                                // leaf = file (an empty directory marker lists
+                                // empty too - then open() fails and we mkdir)
+                                if( skipExisting && dest.exists() )
+                                        return 0;
+                                InputStream in;
+                                try {
+                                        in = getAssets().open( assetPath );
+                                } catch( Throwable notAFile ) {
+                                        dest.mkdirs();
+                                        return 0;
+                                }
+                                dest.getParentFile().mkdirs();
+                                FileOutputStream out = new FileOutputStream( dest );
+                                byte[] buf = new byte[16384];
+                                int n;
+                                while(( n = in.read( buf )) > 0 )
+                                        out.write( buf, 0, n );
+                                out.close();
+                                in.close();
+                                return 1;
+                        }
+
+                        dest.mkdirs();
+                        for( String child : children ) {
+                                // the ebot tree's waypoints/ subdir is synced
+                                // separately with the never-overwrite policy
+                                if( assetPath.equals( "addons/ebot" ) && child.equals( "waypoints" ) )
+                                        continue;
+                                count += copyAssetTree( assetPath + "/" + child,
+                                        new File( dest, child ), skipExisting );
+                        }
+                } catch( Throwable t ) {
+                        Log.w( TAG, "asset copy failed: " + assetPath, t );
+                }
+                return count;
+        }
+
         private boolean isAmxxOn() {
                 return getPreferences( MODE_PRIVATE ).getBoolean( "enable_amxx", true );
         }
@@ -650,21 +822,38 @@ public class MainActivity extends Activity {
          */
         private void syncSwitchPrefsWithMarkers() {
                 SharedPreferences prefs = getPreferences( MODE_PRIVATE );
-                if( prefs.contains( "enable_amxx" ) && prefs.contains( "enable_yapb_bots" ) )
+                if( prefs.contains( "enable_amxx" ) && prefs.contains( "enable_yapb_bots" )
+                        && prefs.contains( "enable_ebot_bots" ) )
                         return;
 
                 File metaDir = new File( getXashDir(), "cstrike/addons/metamod" );
                 boolean amxx = !new File( metaDir, "amxmodx.disabled" ).isFile();
                 boolean yapb = !new File( metaDir, "yapb.disabled" ).isFile();
+
+                // EBot is opt-in: with neither marker file present (first run
+                // after the update) it starts DISABLED so it can never silently
+                // replace YaPB; from then on the two marker files are the
+                // on-disk truth and they survive app reinstalls.
+                File ebotMarker = new File( metaDir, "ebot.disabled" );
+                if( !ebotMarker.isFile() && !new File( metaDir, "ebot.enabled" ).isFile() )
+                        writeMetaMarker( "ebot.disabled", true );
+                boolean ebot = !ebotMarker.isFile();
+
                 prefs.edit()
                         .putBoolean( "enable_amxx", amxx )
                         .putBoolean( "enable_yapb_bots", yapb )
+                        .putBoolean( "enable_ebot_bots", ebot )
                         .apply();
-                Log.i( TAG, "switch prefs seeded from markers: amxx=" + amxx + ", yapb=" + yapb );
+                Log.i( TAG, "switch prefs seeded from markers: amxx=" + amxx
+                        + ", yapb=" + yapb + ", ebot=" + ebot );
         }
 
         private boolean isYapbOn() {
                 return getPreferences( MODE_PRIVATE ).getBoolean( "enable_yapb_bots", true );
+        }
+
+        private boolean isEbotOn() {
+                return getPreferences( MODE_PRIVATE ).getBoolean( "enable_ebot_bots", false );
         }
 
         private void writeMetaMarker( String name, boolean present ) {

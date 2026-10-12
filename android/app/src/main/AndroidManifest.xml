@@ -13,6 +13,11 @@
         android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
 
+    <!-- launcher update gate: check the latest published release and
+         download the new build when one is available -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <application
         android:forceQueryable="true"
         android:icon="@mipmap/ic_launcher"
@@ -61,10 +66,20 @@
                                 <action android:name="su.xash.engine.MOD" />
                         </intent-filter>
                 </activity>
+
+        <!-- result of the framework PackageInstaller session used by the
+             launcher's forced update flow -->
+        <receiver
+            android:name=".InstallStatusReceiver"
+            android:exported="false" />
     </application>
 
     <queries>
         <package android:name="su.xash.engine" />
         <package android:name="su.xash.engine.test" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="application/vnd.android.package-archive" />
+        </intent>
     </queries>
 </manifest>

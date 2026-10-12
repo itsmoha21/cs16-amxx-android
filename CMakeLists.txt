@@ -67,7 +67,18 @@ if(BUILD_SERVER)
 	# 	BUILD_IN_SOURCE 1
 	# 	INSTALL_COMMAND meson install -C build --destdir ${CMAKE_INSTALL_PREFIX}
 	# )
-	add_subdirectory(3rdparty/yapb)
+	# official yaPB source from the standalone clone (../yapb, fresh
+	# github.com/yapb/yapb checkout with submodules) instead of the stale
+	# 3rdparty/yapb submodule pin (2026-03-01). Out-of-tree source dirs
+	# need an explicit binary dir argument.
+	set(YAPB_LTO OFF CACHE BOOL "" FORCE)
+	add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../yapb ${CMAKE_CURRENT_BINARY_DIR}/yapb)
+	if(TARGET yapb AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+		# upstream configures its target with STRICT (-Werror); NDK clang
+		# diagnostics can differ from upstream's CI toolchains, keep
+		# warnings non-fatal for this build environment
+		target_compile_options(yapb PRIVATE -Wno-error)
+	endif()
 
 	if(MSVC)
 		# Limit YaPB to one concurrent compile job because MSVC shares one
@@ -77,6 +88,13 @@ if(BUILD_SERVER)
     endif()
 
 	set_target_postfix(yapb)
+
+	# CS-EBOT (kotelgg) as a second metamod bot plugin, built from the
+	# standalone clone in ../CS-EBOT. The launcher UI exposes an
+	# enable/disable switch for it below the YaPB one; output naming
+	# follows the same scheme: libebot_android_<arch>.so
+	add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../CS-EBOT/project ${CMAKE_CURRENT_BINARY_DIR}/ebot)
+	set_target_postfix_with_name(EBOT ebot)
 
 	set(XASH_COMPAT ON CACHE BOOL "" FORCE)
 	add_subdirectory(3rdparty/ReGameDLL_CS)
@@ -99,7 +117,13 @@ execute_process(
 )
 
 set(EXTRAS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/cs16client-extras")
-set(YAPB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/yapb/cfg")
+set(YAPB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../yapb/cfg")
+set(EBOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../CS-EBOT")
+# (bot assets incl. addons/ebot/waypoints are file(COPY)-ed at configure
+# time - bump this comment to force a reconfigure when they change;
+# r2: ebot_has_semiclip enabled in shipped ebot.cfg;
+# r3: original-map waypoint pack added - 49 de_/cs_/as_/fy_ .ewp plus
+# zm_army, curated de_dust2 restored - 70 .ewp ship in total)
 
 if(ANDROID)
 	set(EXTRAS_OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/android/app/src/main/assets")
@@ -116,6 +140,11 @@ if(ANDROID)
 
 	file(GLOB EXTRAS_FILES "${EXTRAS_DIR}/*")
 	file(GLOB YAPB_FILES "${YAPB_DIR}/*" "${GRAPHS_OUTPUT}/*")
+	# EBot configs (addons/ebot/*.cfg) ship as individual assets too; the
+	# launcher copies them - like the YaPB pack - onto disk, because the bot
+	# reads them with plain libc fopen(). Glob the ADDONS root so the copied
+	# directory keeps its name and lands at assets/addons/ebot/...
+	file(GLOB EBOT_FILES "${EBOT_DIR}/addons")
 
 	if(AMXX_FILES)
 		file(REMOVE_RECURSE ${AMXX_STASH})
@@ -125,7 +154,7 @@ if(ANDROID)
 
 	file(REMOVE_RECURSE ${EXTRAS_OUTPUT})
 	file(
-		COPY ${EXTRAS_FILES} ${YAPB_FILES}
+		COPY ${EXTRAS_FILES} ${YAPB_FILES} ${EBOT_FILES}
 		DESTINATION ${EXTRAS_OUTPUT}
 	)
 

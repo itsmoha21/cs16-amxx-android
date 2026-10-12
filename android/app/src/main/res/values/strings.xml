@@ -29,6 +29,8 @@
     <string name="menu_enable_amxx_sum">Metamod plugins and server mods</string>
     <string name="menu_enable_yapb">YaPB bots</string>
     <string name="menu_enable_yapb_sum">Bots loaded as a metamod plugin</string>
+    <string name="menu_enable_ebot">EBot bots</string>
+    <string name="menu_enable_ebot_sum">Zombie-mode bot, replaces YaPB when on</string>
     <string name="menu_compile">Compile SMA plugin</string>
     <string name="menu_plugins">Plugins (.ini editor)</string>
     <string name="menu_reinstall">Re-install addons</string>
