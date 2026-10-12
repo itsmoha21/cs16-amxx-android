@@ -15,9 +15,17 @@ import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.FileReader;
+import java.io.FileWriter;
 import java.io.InputStream;
+import java.io.PrintWriter;
+import java.security.MessageDigest;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -239,15 +247,39 @@ public class MainActivity extends Activity {
         }
 
         private void extractAddonsIfNeeded() throws Exception {
+                extractAddons( false );
+        }
+
+        /**
+         * force = true is the manual "Re-install addons" button: restore
+         * every bundled file to stock. Files this app never shipped (the
+         * user's own plugins, configs, waypoints) are never touched on any
+         * path - force only resets files that come from our own bundle.
+         */
+        private void extractAddons( boolean force ) throws Exception {
                 // bot packs (YaPB conf/graphs, EBot configs) ship as individual
                 // assets, not inside addons.zip - sync them onto disk first
-                extractBotAssetsIfNeeded();
+                Map<String, String> manifest = loadShippedManifest();
+
+                // pre-manifest installs: first run of a build that tracks file
+                // checksums. The previous build extracted everything on disk,
+                // so bootstrap the manifest and refresh the whole bundle once,
+                // exactly like the old update path did - from then on user
+                // edits are protected by their checksums.
+                boolean bootstrap = manifest.isEmpty() && (
+                        getPreferences( MODE_PRIVATE ).getString( "addons_version", null ) != null
+                        || getPreferences( MODE_PRIVATE ).getString( "bot_assets_version", null ) != null );
+                boolean full = force || bootstrap;
+
                 // cstrike addons (AMX Mod X for Counter-Strike) -- this app
                 // installs ONLY the counter-strike addon pack. The valve
                 // (Half-Life) AMX addons are handled by the engine app itself
                 // (Xash3D FWGS (AMXX)) at valve game launch since v9.
+                extractBotAssetsIfNeeded( full, manifest );
                 extractZipIfNeeded( "addons.zip", "addons_version",
-                        "cstrike/addons/metamod/dlls/libmetamod_android_arm64.so" );
+                        "cstrike/addons/metamod/dlls/libmetamod_android_arm64.so",
+                        full, manifest );
+                saveShippedManifest( manifest );
 
                 // the stale-file cleanup is GONE. It deleted the
                 // ProBaseBuilder file set (bb plugins, Pro_basebuilder.ini and
@@ -264,16 +296,17 @@ public class MainActivity extends Activity {
                 patchPluginsIni();
         }
 
-        private void extractZipIfNeeded( String assetName, String prefKey,
-                String markerRelPath ) throws Exception {
+        private int extractZipIfNeeded( String assetName, String prefKey,
+                String markerRelPath, boolean full,
+                Map<String, String> manifest ) throws Exception {
                 SharedPreferences prefs = getPreferences( MODE_PRIVATE );
                 String installed = prefs.getString( prefKey, null );
 
                 File markerLib = new File( getXashDir(), markerRelPath );
 
-                if( ADDONS_VERSION.equals( installed ) && markerLib.isFile() ) {
+                if( !full && ADDONS_VERSION.equals( installed ) && markerLib.isFile() ) {
                         Log.i( TAG, "AMXX addons up to date (" + assetName + ": " + ADDONS_VERSION + ")" );
-                        return;
+                        return 0;
                 }
 
                 File dest = getXashDir();
@@ -289,47 +322,25 @@ public class MainActivity extends Activity {
                         if( entry.isDirectory() )
                                 continue;
 
-                        File outFile = new File( dest, entry.getName() );
+                        String rel = entry.getName();
+                        File outFile = new File( dest, rel );
 
                         // zip-slip guard
                         if( !outFile.getCanonicalPath().startsWith( destCanon + File.separator )) {
-                                Log.w( TAG, "skipping suspicious zip entry: " + entry.getName() );
+                                Log.w( TAG, "skipping suspicious zip entry: " + rel );
+                                continue;
+                        }
+
+                        // user-owned or user-edited file: keep the disk copy
+                        if( !mayOverwrite( outFile, rel, manifest, full )) {
+                                Log.i( TAG, "keeping user file: " + rel );
+                                zis.closeEntry();
                                 continue;
                         }
 
                         File parent = outFile.getParentFile();
                         if( parent != null && !parent.isDirectory() )
                                 parent.mkdirs();
-
-                        // amxx configs are user-owned data: the plugin list,
-                        // admins (users.ini), cvars... mods and server owners
-                        // edit them after the first install. On a re-extract
-                        // (bundle update for fixed .so files) keep the copies
-                        // already on disk instead of resetting them to stock;
-                        // a fresh install still extracts everything.
-                        //
-                        // modules.ini is the exception - it is the module loader
-                        // list and MUST match the shipped .so set (it enables
-                        // sqlite, which provides the "sqlx" class that plugins
-                        // like amx_gag require). A stale/vanilla modules.ini left
-                        // from an old install would drop those modules, so it is
-                        // always refreshed on a bundle update.
-                        boolean isModulesIni = entry.getName().endsWith( "modules.ini" );
-
-                        // analyzed/user-provided waypoint files win over the
-                        // shipped pack - same policy as the bot-asset sync,
-                        // so a bundle refresh can never reset a waypoint set
-                        // the user analyzed or replaced manually
-                        boolean isWaypoint = entry.getName().endsWith( ".ewp" );
-
-                        if( !isModulesIni && outFile.isFile() && ( isWaypoint
-                                        || outFile.getPath().contains(
-                                        File.separator + "addons" + File.separator + "amxmodx"
-                                        + File.separator + "configs" + File.separator ))) {
-                                Log.i( TAG, "keeping user config: " + entry.getName() );
-                                zis.closeEntry();
-                                continue;
-                        }
 
                         FileOutputStream fos = new FileOutputStream( outFile );
                         int n;
@@ -341,6 +352,10 @@ public class MainActivity extends Activity {
                         if( outFile.getName().endsWith( ".so" ))
                                 outFile.setExecutable( true, false );
 
+                        // remember what we wrote so later updates can tell our
+                        // files apart from user edits
+                        manifest.put( rel, sha256Of( outFile ));
+
                         count++;
                         zis.closeEntry();
                 }
@@ -349,8 +364,115 @@ public class MainActivity extends Activity {
                 prefs.edit().putString( prefKey, ADDONS_VERSION ).apply();
                 Log.i( TAG, "AMXX addons extracted (" + assetName + "): " + count
                         + " files -> " + dest.getAbsolutePath() );
-                                Toast.makeText( this, "AMX Mod X addons installed (" + assetName + ": "
-                                                + count + " files)", Toast.LENGTH_SHORT ).show();
+                Toast.makeText( this, "AMX Mod X addons installed (" + assetName + ": "
+                        + count + " files)", Toast.LENGTH_SHORT ).show();
+                return count;
+        }
+
+        // ------------------------------------------------------------------
+        // file ownership for the addon update paths
+        //
+        // every file this app writes into the game tree is recorded with its
+        // SHA-256 in a manifest next to the metamod markers (on disk, so it
+        // survives app reinstalls like they do). A later update may then:
+        //   - refresh a bundled file that is untouched since we wrote it
+        //   - keep a bundled file the user edited (checksum mismatch)
+        //   - never touch a file we never wrote (user's own addons)
+        // The "Re-install addons" button passes full = true and resets every
+        // bundled file to stock - the one way back to a stock bundle.
+        // ------------------------------------------------------------------
+
+        /** true when the bundle may write rel over the disk copy. */
+        private boolean mayOverwrite( File outFile, String rel,
+                Map<String, String> manifest, boolean full ) {
+                // analyzed/user-provided waypoint files win over the shipped
+                // pack on every path, reinstall included
+                if( outFile.isFile() && rel.endsWith( ".ewp" ))
+                        return false;
+
+                // amxx configs are user-owned data: the plugin list, admins
+                // (users.ini), cvars... they are edited after the first
+                // install and never reset to stock
+                if( outFile.isFile() && rel.contains( "/addons/amxmodx/configs/" ))
+                        return false;
+
+                if( full || !outFile.isFile() )
+                        return true;
+
+                // modules.ini is the module loader list and MUST match the
+                // shipped .so set (it enables sqlite, which provides the
+                // "sqlx" class that plugins like amx_gag require) - always
+                // refreshed
+                if( rel.endsWith( "modules.ini" ))
+                        return true;
+
+                String recorded = manifest.get( rel );
+                if( recorded == null )
+                        return false; // on disk but never written by us: user's
+
+                try {
+                        // unchanged since we wrote it -> bundled update wins
+                        return recorded.equalsIgnoreCase( sha256Of( outFile ));
+                } catch( Throwable t ) {
+                        return false; // unreadable -> keep the disk copy
+                }
+        }
+
+        private File shippedManifestFile() {
+                return new File( getXashDir(),
+                        "cstrike/addons/metamod/.cs16client-shipped" );
+        }
+
+        private Map<String, String> loadShippedManifest() {
+                Map<String, String> map = new HashMap<String, String>();
+                try {
+                        File f = shippedManifestFile();
+                        if( !f.isFile() )
+                                return map;
+                        BufferedReader r = new BufferedReader( new FileReader( f ));
+                        String line;
+                        while(( line = r.readLine() ) != null ) {
+                                // "<64 hex> <relpath>"
+                                if( line.length() > 65 && line.charAt( 64 ) == ' ' )
+                                        map.put( line.substring( 65 ), line.substring( 0, 64 ));
+                        }
+                        r.close();
+                } catch( Throwable t ) {
+                        Log.w( TAG, "shipped manifest unreadable", t );
+                }
+                return map;
+        }
+
+        private void saveShippedManifest( Map<String, String> map ) {
+                try {
+                        File f = shippedManifestFile();
+                        if( f.getParentFile() != null )
+                                f.getParentFile().mkdirs();
+                        PrintWriter pw = new PrintWriter( new FileWriter( f, false ));
+                        for( Map.Entry<String, String> e : map.entrySet() )
+                                pw.println( e.getValue() + " " + e.getKey() );
+                        pw.close();
+                } catch( Throwable t ) {
+                        Log.w( TAG, "cannot write shipped manifest", t );
+                }
+        }
+
+        private static String sha256Of( File f ) throws Exception {
+                MessageDigest md = MessageDigest.getInstance( "SHA-256" );
+                FileInputStream in = new FileInputStream( f );
+                try {
+                        byte[] buf = new byte[65536];
+                        int n;
+                        while(( n = in.read( buf )) > 0 )
+                                md.update( buf, 0, n );
+                } finally {
+                        in.close();
+                }
+                StringBuilder sb = new StringBuilder();
+                for( byte b : md.digest() )
+                        sb.append( Character.forDigit(( b >> 4 ) & 0xF, 16 ))
+                          .append( Character.forDigit( b & 0xF, 16 ));
+                return sb.toString();
         }
 
         /**
@@ -613,10 +735,16 @@ public class MainActivity extends Activity {
                                         return;
                                 }
 
+                                // true reinstall: drop both stamps and let the
+                                // extraction reset every BUNDLED file to stock.
+                                // The user's own addons are not part of the
+                                // bundle and are never touched (waypoints stay
+                                // protected too - see mayOverwrite).
                                 getPreferences( MODE_PRIVATE ).edit()
-                                        .remove( "addons_version" ).apply();
+                                        .remove( "addons_version" )
+                                        .remove( "bot_assets_version" ).apply();
                                 try {
-                                        extractAddonsIfNeeded();
+                                        extractAddons( true );
                                 } catch( Throwable t ) {
                                         Log.w( TAG, "addons re-install failed", t );
                                         Toast.makeText( MainActivity.this,
@@ -724,7 +852,8 @@ public class MainActivity extends Activity {
          * APK. Copy them to /xash/cstrike/addons once per ADDONS_VERSION so
          * every bot file is on disk next to the metamod plugins.
          */
-        private void extractBotAssetsIfNeeded() {
+        private int extractBotAssetsIfNeeded( boolean full,
+                Map<String, String> manifest ) {
                 SharedPreferences prefs = getPreferences( MODE_PRIVATE );
                 File base = new File( getXashDir(), "cstrike/addons" );
 
@@ -741,17 +870,20 @@ public class MainActivity extends Activity {
                         && new File( base, "ebot/waypoints" ).isDirectory()
                         && new File( base, "yapb/conf/yapb.cfg" ).isFile()
                         && new File( getXashDir(), "cstrike/BotProfile.db" ).isFile();
-                if( stamped && present )
-                        return;
+                if( !full && stamped && present )
+                        return 0;
                 if( stamped )
                         Log.w( TAG, "bot assets incomplete on disk - re-extracting" );
                 int count = 0;
-                count += copyAssetTree( "addons/yapb", new File( base, "yapb" ), false );
-                count += copyAssetTree( "addons/ebot", new File( base, "ebot" ), false );
+                count += copyAssetTree( "addons/yapb", new File( base, "yapb" ),
+                        false, manifest, full );
+                count += copyAssetTree( "addons/ebot", new File( base, "ebot" ),
+                        false, manifest, full );
                 // bundled waypoints never overwrite existing .ewp files -
                 // analyzed/user-provided waypoint files win over shipped ones
+                // (on the reinstall path too - this rule is absolute)
                 count += copyAssetTree( "addons/ebot/waypoints",
-                        new File( base, "ebot/waypoints" ), true );
+                        new File( base, "ebot/waypoints" ), true, manifest, full );
                 // keep the (bot-created) waypoints directory around
                 new File( base, "ebot/waypoints" ).mkdirs();
                 // ReGameDLL's built-in bot code reads these two databases
@@ -759,24 +891,38 @@ public class MainActivity extends Activity {
                 // phrase init) - they ship as APK assets but nothing used
                 // to copy them to disk
                 count += copyAssetTree( "BotProfile.db",
-                        new File( getXashDir(), "cstrike/BotProfile.db" ), false );
+                        new File( getXashDir(), "cstrike/BotProfile.db" ),
+                        false, manifest, full );
                 count += copyAssetTree( "BotChatter.db",
-                        new File( getXashDir(), "cstrike/BotChatter.db" ), false );
+                        new File( getXashDir(), "cstrike/BotChatter.db" ),
+                        false, manifest, full );
 
                 prefs.edit().putString( "bot_assets_version", BOT_ASSETS_VERSION ).apply();
                 Log.i( TAG, "bot assets extracted: " + count + " files -> "
                         + base.getAbsolutePath() );
+                return count;
         }
 
-        private int copyAssetTree( String assetPath, File dest, boolean skipExisting ) {
+        private int copyAssetTree( String assetPath, File dest, boolean skipExisting,
+                Map<String, String> manifest, boolean full ) {
                 int count = 0;
                 try {
                         String[] children = getAssets().list( assetPath );
                         if( children == null || children.length == 0 ) {
                                 // leaf = file (an empty directory marker lists
                                 // empty too - then open() fails and we mkdir)
-                                if( skipExisting && dest.exists() )
-                                        return 0;
+                                if( dest.exists() ) {
+                                        // bundled waypoints never overwrite
+                                        // existing .ewp files - analyzed /
+                                        // user-provided waypoint files win
+                                        if( skipExisting )
+                                                return 0;
+                                        // user-owned or user-edited file:
+                                        // keep the disk copy
+                                        if( !mayOverwrite( dest, relToXash( dest ),
+                                                        manifest, full ))
+                                                return 0;
+                                }
                                 InputStream in;
                                 try {
                                         in = getAssets().open( assetPath );
@@ -792,6 +938,8 @@ public class MainActivity extends Activity {
                                         out.write( buf, 0, n );
                                 out.close();
                                 in.close();
+                                // record what we wrote (see mayOverwrite)
+                                manifest.put( relToXash( dest ), sha256Of( dest ));
                                 return 1;
                         }
 
@@ -802,12 +950,26 @@ public class MainActivity extends Activity {
                                 if( assetPath.equals( "addons/ebot" ) && child.equals( "waypoints" ) )
                                         continue;
                                 count += copyAssetTree( assetPath + "/" + child,
-                                        new File( dest, child ), skipExisting );
+                                        new File( dest, child ), skipExisting,
+                                        manifest, full );
                         }
                 } catch( Throwable t ) {
                         Log.w( TAG, "asset copy failed: " + assetPath, t );
                 }
                 return count;
+        }
+
+        /** path of f relative to the xash dir, '/'-separated (manifest key). */
+        private String relToXash( File f ) {
+                try {
+                        String base = getXashDir().getCanonicalPath() + File.separator;
+                        String full = f.getCanonicalPath();
+                        if( full.startsWith( base ))
+                                return full.substring( base.length() )
+                                        .replace( File.separatorChar, '/' );
+                } catch( Throwable ignored ) {
+                }
+                return f.getPath().replace( File.separatorChar, '/' );
         }
 
         private boolean isAmxxOn() {

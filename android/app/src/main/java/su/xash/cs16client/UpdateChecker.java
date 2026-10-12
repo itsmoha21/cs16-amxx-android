@@ -10,20 +10,23 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageInstaller;
 import android.content.pm.PackageManager;
-import android.graphics.Color;
+import android.database.Cursor;
 import android.graphics.Typeface;
+import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
+import android.text.style.StyleSpan;
 import android.util.Log;
-import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
-import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
@@ -39,6 +42,9 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -47,10 +53,11 @@ import java.util.concurrent.atomic.AtomicLong;
  * On every start the launcher asks GitHub for the latest published release
  * and compares its build number (the NN in the 1.35.NN-<hash> tag, which is
  * identical to this app's versionName) with the one compiled in. If a newer
- * build exists the user gets a blocking dark dialog: update or exit - there
- * is no "continue with the old version". Builds without a build number in
- * their versionName (pre-1.35.NN installs) count as build 0 so they are
- * asked to update as well.
+ * build exists a blocking dark card shows the release notes with sections,
+ * the two versions side by side, live download progress (size counter) and
+ * an install/retry flow - update or exit, there is no "continue with the
+ * old version". Builds without a build number in their versionName
+ * (pre-1.35.NN installs) count as build 0 so they are asked to update too.
  *
  * If the check cannot run (no network, GitHub unreachable, API rate limit)
  * the launcher starts normally - only a CONFIRMED newer release blocks.
@@ -64,12 +71,31 @@ final class UpdateChecker {
     // never see them) defines the newest build
     private static final String API_URL =
             "https://api.github.com/repos/venomxtreme-cs/cs16fresh/releases?per_page=1";
-    private static final String RELEASES_PAGE =
-            "https://github.com/venomxtreme-cs/cs16fresh/releases";
     private static final String APK_NAME = "cs16client-app-git-release.apk";
 
     private static final AtomicLong sDownloadId = new AtomicLong( -1 );
     private static boolean sReceiverRegistered = false;
+    private static Runnable sDownloadCompleteListener = null;
+
+    // process-lifetime receiver for the download; delegates to whatever
+    // dialog is currently on screen (null after it is dismissed)
+    private static final BroadcastReceiver sDownloadCompleteReceiver =
+            new BroadcastReceiver() {
+        @Override
+        public void onReceive( Context context, Intent intent ) {
+            long id = intent.getLongExtra( DownloadManager.EXTRA_DOWNLOAD_ID, -1 );
+            if( id != sDownloadId.get() )
+                return;
+            Runnable done = sDownloadCompleteListener;
+            if( done != null )
+                done.run();
+        }
+    };
+
+    // dialog states
+    private static final int STATE_IDLE = 0;
+    private static final int STATE_DOWNLOADING = 1;
+    private static final int STATE_INSTALLING = 2;
 
     private UpdateChecker() {}
 
@@ -83,21 +109,21 @@ final class UpdateChecker {
             @Override
             public void run() {
                 try {
-                    String tag = fetchLatestTag();
-                    if( tag == null )
+                    Release release = fetchLatestRelease();
+                    if( release == null )
                         return;
 
-                    int remoteBuild = buildNumberFrom( tag );
+                    int remoteBuild = buildNumberFrom( release.tag );
                     if( remoteBuild <= localBuild )
                         return; // up to date
 
-                    final String latestTag = tag;
+                    final Release rel = release;
                     new Handler( Looper.getMainLooper() ).post( new Runnable() {
                         @Override
                         public void run() {
                             if( activity.isFinishing() || activity.isDestroyed() )
                                 return;
-                            showDialog( activity, latestTag, remoteBuild );
+                            showDialog( activity, rel );
                         }
                     } );
                 } catch( Throwable t ) {
@@ -110,7 +136,18 @@ final class UpdateChecker {
 
     // ------------------------------------------------------------------
 
-    private static String fetchLatestTag() throws Exception {
+    /** the one release we need: tag, display name, notes, publish date */
+    private static final class Release {
+        final String tag, name, body, publishedAt;
+        Release( String tag, String name, String body, String publishedAt ) {
+            this.tag = tag;
+            this.name = name;
+            this.body = body;
+            this.publishedAt = publishedAt;
+        }
+    }
+
+    private static Release fetchLatestRelease() throws Exception {
         URL url = new URL( API_URL );
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         try {
@@ -137,8 +174,17 @@ final class UpdateChecker {
                 return null;
 
             JSONObject newest = arr.optJSONObject( 0 );
-            String tag = newest == null ? "" : newest.optString( "tag_name", "" );
-            return tag.isEmpty() ? null : tag;
+            if( newest == null )
+                return null;
+
+            String tag = newest.optString( "tag_name", "" );
+            if( tag.isEmpty() )
+                return null;
+
+            return new Release( tag,
+                    newest.optString( "name", "" ),
+                    newest.optString( "body", "" ),
+                    newest.optString( "published_at", "" ) );
         } finally {
             conn.disconnect();
         }
@@ -153,17 +199,18 @@ final class UpdateChecker {
         if( m.find() ) {
             try {
                 return Integer.parseInt( m.group( 1 ) );
-            } catch( NumberFormatException ignored ) { }
+            } catch( NumberFormatException ignored) { }
         }
         return 0;
     }
 
     // ------------------------------------------------------------------
-    // blocking dark dialog: update or exit, nothing else
+    // blocking dark card: update or exit, nothing else
     // ------------------------------------------------------------------
 
-    private static void showDialog( final Activity activity,
-            final String tag, final int remoteBuild ) {
+    private static void showDialog( final Activity activity, final Release release ) {
+
+        final int remoteBuild = buildNumberFrom( release.tag );
 
         final Dialog dialog = new Dialog( activity );
         dialog.setCancelable( false );
@@ -176,117 +223,272 @@ final class UpdateChecker {
             }
         } );
 
-        int pad = dp( activity, 24 );
+        // no title bar - the card carries its own header
+        try {
+            dialog.requestWindowFeature( android.view.Window.FEATURE_NO_TITLE );
+        } catch( Throwable ignored ) { }
 
-        LinearLayout panel = new LinearLayout( activity );
-        panel.setOrientation( LinearLayout.VERTICAL );
-        panel.setBackgroundColor( Color.rgb( 0x14, 0x14, 0x14 ) );
-        panel.setPadding( pad, pad, pad, pad );
+        // centered card on a dimmed background, launcher palette
+        dialog.getWindow().setBackgroundDrawable( new ColorDrawable( 0x00000000 ) );
+        dialog.setContentView( R.layout.dialog_update );
 
-        TextView title = new TextView( activity );
-        title.setText( "Update required" );
-        title.setTextColor( Color.WHITE );
-        title.setTextSize( 20f );
-        title.setTypeface( Typeface.DEFAULT, Typeface.BOLD );
-        panel.addView( title, matchWrap() );
+        final TextView from = (TextView) dialog.findViewById( R.id.upd_from );
+        final TextView to = (TextView) dialog.findViewById( R.id.upd_to );
+        final TextView releaseTitle = (TextView) dialog.findViewById( R.id.upd_release );
+        final TextView date = (TextView) dialog.findViewById( R.id.upd_date );
+        final TextView changelog = (TextView) dialog.findViewById( R.id.upd_changelog );
+        final ProgressBar bar = (ProgressBar) dialog.findViewById( R.id.upd_progress );
+        final TextView status = (TextView) dialog.findViewById( R.id.upd_status );
+        final TextView primary = (TextView) dialog.findViewById( R.id.upd_primary );
+        final TextView secondary = (TextView) dialog.findViewById( R.id.upd_secondary );
 
-        TextView body = new TextView( activity );
-        body.setText( "A new version is available:\n\n"
-                + "development build " + remoteBuild + "  (" + tag + ")\n\n"
-                + "Update to the latest version to continue." );
-        body.setTextColor( Color.rgb( 0xB0, 0xB0, 0xB0 ) );
-        body.setTextSize( 14f );
-        body.setGravity( Gravity.START );
-        LinearLayout.LayoutParams bodyLp = matchWrap();
-        bodyLp.topMargin = dp( activity, 16 );
-        panel.addView( body, bodyLp );
+        from.setText( BuildConfig.VERSION_NAME );
+        to.setText( release.tag );
+        releaseTitle.setText( release.name.isEmpty()
+                ? "development build " + remoteBuild : release.name );
+        date.setText( formatDate( release.publishedAt ));
+        changelog.setText( renderChangelog( release.body ));
 
-        final TextView status = new TextView( activity );
-        status.setTextColor( Color.rgb( 0x8A, 0x8A, 0x8A ) );
-        status.setTextSize( 13f );
-        LinearLayout.LayoutParams statusLp = matchWrap();
-        statusLp.topMargin = dp( activity, 16 );
-        panel.addView( status, statusLp );
+        bar.setMax( 100 );
 
-        final ProgressBar bar = new ProgressBar( activity );
-        bar.setVisibility( android.view.View.GONE );
-        LinearLayout.LayoutParams barLp = matchWrap();
-        barLp.topMargin = dp( activity, 8 );
-        barLp.gravity = Gravity.CENTER_HORIZONTAL;
-        panel.addView( bar, barLp );
+        final Handler handler = new Handler( Looper.getMainLooper() );
+        final int[] state = { STATE_IDLE };
 
-        LinearLayout buttons = new LinearLayout( activity );
-        buttons.setOrientation( LinearLayout.HORIZONTAL );
-        LinearLayout.LayoutParams buttonsLp = matchWrap();
-        buttonsLp.topMargin = dp( activity, 24 );
-        panel.addView( buttons, buttonsLp );
-
-        TextView updateBtn = flatButton( activity, "UPDATE NOW",
-                Color.rgb( 0x2B, 0x2B, 0x2B ), Color.WHITE );
-        TextView exitBtn = flatButton( activity, "EXIT",
-                Color.rgb( 0x1E, 0x1E, 0x1E ), Color.rgb( 0x9E, 0x9E, 0x9E ) );
-
-        LinearLayout.LayoutParams updateLp = matchWrap();
-        updateLp.weight = 1;
-        LinearLayout.LayoutParams exitLp = matchWrap();
-        exitLp.weight = 1;
-        exitLp.leftMargin = dp( activity, 12 );
-        buttons.addView( updateBtn, updateLp );
-        buttons.addView( exitBtn, exitLp );
-
-        final android.view.View.OnClickListener updateClick =
-                new android.view.View.OnClickListener() {
+        final Runnable poller = new Runnable() {
             @Override
-            public void onClick( android.view.View v ) {
-                // one-time per device: let the user allow this launcher to
-                // start the installer BEFORE anything is downloaded, so the
-                // flow never dead-ends at the install step
-                if( Build.VERSION.SDK_INT >= 26 && !activity.getPackageManager()
-                        .canRequestPackageInstalls() ) {
-                    status.setText( "Allow installing apps for this launcher, "
-                            + "then tap Update again." );
+            public void run() {
+                if( state[0] != STATE_DOWNLOADING )
+                    return;
+                long id = sDownloadId.get();
+                if( id < 0 )
+                    return;
+                DownloadManager dm = (DownloadManager)
+                        activity.getSystemService( Context.DOWNLOAD_SERVICE );
+                if( dm == null )
+                    return;
+                Cursor c = dm.query( new DownloadManager.Query().setFilterById( id ));
+                if( c != null ) {
                     try {
-                        activity.startActivity( new Intent(
-                                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                                Uri.parse( "package:" + activity.getPackageName() ) ) );
-                    } catch( Throwable t ) {
-                        Log.w( TAG, "cannot open install permission screen", t );
+                        if( c.moveToFirst() ) {
+                            long total = c.getLong( c.getColumnIndexOrThrow(
+                                    DownloadManager.COLUMN_TOTAL_SIZE_BYTES ));
+                            long done = c.getLong( c.getColumnIndexOrThrow(
+                                    DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR ));
+                            int pct = ( total > 0 ) ? (int)( done * 100 / total ) : 0;
+                            bar.setProgress( pct );
+                            if( total > 0 ) {
+                                status.setText( "Downloading update  " + pct + "%  ("
+                                        + mb( done ) + " / " + mb( total ) + " MB)" );
+                            } else {
+                                status.setText( "Downloading update  " + mb( done ) + " MB" );
+                            }
+                        }
+                    } finally {
+                        c.close();
                     }
+                }
+                handler.postDelayed( this, 400 );
+            }
+        };
+
+        sDownloadCompleteListener = new Runnable() {
+            @Override
+            public void run() {
+                handler.removeCallbacks( poller );
+
+                // DownloadManager put it into the public downloads dir
+                File apk = new File( Environment.getExternalStoragePublicDirectory(
+                        Environment.DIRECTORY_DOWNLOADS ), "cs16client-update.apk" );
+                if( !apk.isFile() ) {
+                    Log.w( TAG, "download finished but apk missing" );
+                    fail( "Download failed - the file is missing. Tap update to retry.",
+                            activity, state, primary, bar, status );
                     return;
                 }
 
-                v.setEnabled( false );
-                status.setText( "Downloading update..." );
-                bar.setVisibility( android.view.View.VISIBLE );
-                startDownload( activity, tag );
+                state[0] = STATE_INSTALLING;
+                primary.setEnabled( false );
+                primary.setText( "INSTALLING" );
+                status.setTextColor( 0xFF7E8CA0 );
+                status.setText( "Handing the update to the system installer..." );
+                installApk( activity, apk );
             }
         };
-        updateBtn.setOnClickListener( updateClick );
 
-        exitBtn.setOnClickListener( new android.view.View.OnClickListener() {
+        InstallStatusReceiver.sListener = new InstallStatusReceiver.Listener() {
+            @Override
+            public void onInstallStatus( int statusCode, String message ) {
+                if( statusCode == PackageInstaller.STATUS_PENDING_USER_ACTION ) {
+                    status.setTextColor( 0xFF7E8CA0 );
+                    status.setText( "Confirm the install in the system dialog..." );
+                    return;
+                }
+                if( statusCode == PackageInstaller.STATUS_SUCCESS ) {
+                    // InstallStatusReceiver toasts + restarts into the new build
+                    return;
+                }
+                Log.w( TAG, "install failed: status=" + statusCode + " " + message );
+                fail( "Installation failed. Tap update to download again.",
+                        activity, state, primary, bar, status );
+            }
+        };
+
+        primary.setOnClickListener( new android.view.View.OnClickListener() {
             @Override
             public void onClick( android.view.View v ) {
+                if( state[0] == STATE_IDLE ) {
+                    // one-time per device: let the user allow this launcher to
+                    // start the installer BEFORE anything is downloaded, so the
+                    // flow never dead-ends at the install step
+                    if( Build.VERSION.SDK_INT >= 26 && !activity.getPackageManager()
+                            .canRequestPackageInstalls() ) {
+                        status.setTextColor( 0xFFFFC25E );
+                        status.setText( "Allow installing apps for this launcher, "
+                                + "then tap update again." );
+                        try {
+                            activity.startActivity( new Intent(
+                                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                    Uri.parse( "package:" + activity.getPackageName() ) ) );
+                        } catch( Throwable t ) {
+                            Log.w( TAG, "cannot open install permission screen", t );
+                        }
+                        return;
+                    }
+
+                    state[0] = STATE_DOWNLOADING;
+                    primary.setText( "CANCEL" );
+                    bar.setProgress( 0 );
+                    status.setTextColor( 0xFF7E8CA0 );
+                    status.setText( "Starting download..." );
+                    status.setVisibility( android.view.View.VISIBLE );
+                    bar.setVisibility( android.view.View.VISIBLE );
+                    handler.removeCallbacks( poller );
+                    handler.postDelayed( poller, 400 );
+                    registerInstallReceiver( activity );
+                    startDownload( activity, release.tag );
+                } else if( state[0] == STATE_DOWNLOADING ) {
+                    // cancel: drop the partial download and return to idle
+                    DownloadManager dm = (DownloadManager)
+                            activity.getSystemService( Context.DOWNLOAD_SERVICE );
+                    if( dm != null )
+                        dm.remove( sDownloadId.get() );
+                    handler.removeCallbacks( poller );
+                    state[0] = STATE_IDLE;
+                    primary.setText( "UPDATE" );
+                    bar.setVisibility( android.view.View.GONE );
+                    status.setVisibility( android.view.View.GONE );
+                }
+            }
+        } );
+
+        secondary.setOnClickListener( new android.view.View.OnClickListener() {
+            @Override
+            public void onClick( android.view.View v ) {
+                if( state[0] == STATE_DOWNLOADING ) {
+                    DownloadManager dm = (DownloadManager)
+                            activity.getSystemService( Context.DOWNLOAD_SERVICE );
+                    if( dm != null )
+                        dm.remove( sDownloadId.get() );
+                }
                 activity.finishAffinity();
                 if( Build.VERSION.SDK_INT >= 21 )
                     android.os.Process.killProcess( android.os.Process.myPid() );
             }
         } );
 
-        FrameLayout root = new FrameLayout( activity );
-        root.setBackgroundColor( Color.rgb( 0x00, 0x00, 0x00 ) );
-        root.setAlpha( 0.92f );
+        dialog.setOnDismissListener( new android.content.DialogInterface.OnDismissListener() {
+            @Override
+            public void onDismiss( android.content.DialogInterface d ) {
+                handler.removeCallbacks( poller );
+                InstallStatusReceiver.sListener = null;
+                sDownloadCompleteListener = null;
+            }
+        } );
 
-        FrameLayout content = new FrameLayout( activity );
-        FrameLayout.LayoutParams contentLp = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER );
-        content.addView( panel, contentLp );
-        root.addView( content, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT ) );
+        primary.setText( "UPDATE" );
+        secondary.setText( "EXIT" );
 
-        dialog.setContentView( root );
         dialog.show();
+
+        // size the card: full width with breathing room around it
+        try {
+            FrameLayout window = (FrameLayout) dialog.getWindow().getDecorView()
+                    .findViewById( android.R.id.content );
+            if( window != null ) {
+                int margin = dp( activity, 24 );
+                ViewGroup.LayoutParams raw = window.getLayoutParams();
+                if( raw instanceof ViewGroup.MarginLayoutParams ) {
+                    ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) raw;
+                    lp.leftMargin = margin;
+                    lp.rightMargin = margin;
+                    window.setLayoutParams( lp );
+                }
+            }
+        } catch( Throwable t ) {
+            Log.w( TAG, "cannot apply dialog margins", t );
+        }
+    }
+
+    /** reset the card to a retryable idle state after a download/install error. */
+    private static void fail( String message, Activity activity, int[] state,
+            TextView primary, ProgressBar bar, TextView status ) {
+        state[0] = STATE_IDLE;
+        primary.setEnabled( true );
+        primary.setText( "UPDATE" );
+        bar.setVisibility( android.view.View.GONE );
+        status.setTextColor( 0xFFFF6B61 );
+        status.setText( message );
+        status.setVisibility( android.view.View.VISIBLE );
+    }
+
+    /** "## header" lines become accent section titles, "- item" becomes a bullet. */
+    private static CharSequence renderChangelog( String body ) {
+        SpannableStringBuilder sb = new SpannableStringBuilder();
+        if( body != null ) {
+            for( String raw : body.split( "\n" ) ) {
+                String line = raw.trim();
+                if( line.isEmpty() )
+                    continue;
+                if( line.startsWith( "## " ) ) {
+                    if( sb.length() > 0 )
+                        sb.append( "\n" );
+                    String header = line.substring( 3 ).trim()
+                            .toUpperCase( Locale.ROOT );
+                    int start = sb.length();
+                    sb.append( header );
+                    sb.setSpan( new ForegroundColorSpan( 0xFFFFC25E ),
+                            start, sb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE );
+                    sb.setSpan( new StyleSpan( Typeface.BOLD ),
+                            start, sb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE );
+                    sb.append( "\n" );
+                } else if( line.startsWith( "- " ) || line.startsWith( "* " ) ) {
+                    sb.append( "  \u2022  " ).append( line.substring( 2 ).trim() )
+                            .append( "\n" );
+                } else {
+                    sb.append( line ).append( "\n" );
+                }
+            }
+        }
+        if( sb.length() == 0 )
+            sb.append( "This update contains internal improvements and fixes." );
+        return sb;
+    }
+
+    private static String formatDate( String iso ) {
+        try {
+            if( iso != null && iso.length() >= 10 ) {
+                Date d = new SimpleDateFormat( "yyyy-MM-dd", Locale.ROOT )
+                        .parse( iso.substring( 0, 10 ) );
+                if( d != null )
+                    return new SimpleDateFormat( "d MMM yyyy", Locale.ENGLISH )
+                            .format( d );
+            }
+        } catch( Throwable ignored) { }
+        return "";
+    }
+
+    private static String mb( long bytes ) {
+        return String.format( Locale.ROOT, "%.1f", bytes / 1048576.0 );
     }
 
     // ------------------------------------------------------------------
@@ -303,7 +505,7 @@ final class UpdateChecker {
             return;
 
         DownloadManager.Request req = new DownloadManager.Request( Uri.parse( apkUrl ) );
-        req.setTitle( "Updating cs16client" );
+        req.setTitle( "Updating CS16Client" );
         req.setNotificationVisibility(
                 DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED );
         req.setDestinationInExternalPublicDir(
@@ -312,7 +514,6 @@ final class UpdateChecker {
 
         long id = dm.enqueue( req );
         sDownloadId.set( id );
-        registerInstallReceiver( activity );
     }
 
     private static void registerInstallReceiver( final Activity activity ) {
@@ -320,25 +521,8 @@ final class UpdateChecker {
             return;
         sReceiverRegistered = true;
 
-        activity.registerReceiver( new BroadcastReceiver() {
-            @Override
-            public void onReceive( Context context, Intent intent ) {
-                long id = intent.getLongExtra(
-                        DownloadManager.EXTRA_DOWNLOAD_ID, -1 );
-                if( id != sDownloadId.get() )
-                    return;
-
-                // DownloadManager put it into the public downloads dir
-                File apk = new File( Environment.getExternalStoragePublicDirectory(
-                        Environment.DIRECTORY_DOWNLOADS ), "cs16client-update.apk" );
-                if( !apk.isFile() ) {
-                    Log.w( TAG, "download finished but apk missing" );
-                    return;
-                }
-
-                installApk( activity, apk );
-            }
-        }, new IntentFilter( DownloadManager.ACTION_DOWNLOAD_COMPLETE ) );
+        activity.registerReceiver( sDownloadCompleteReceiver,
+                new IntentFilter( DownloadManager.ACTION_DOWNLOAD_COMPLETE ) );
     }
 
     // ------------------------------------------------------------------
@@ -414,26 +598,6 @@ final class UpdateChecker {
     }
 
     // ------------------------------------------------------------------
-
-    private static LinearLayout.LayoutParams matchWrap() {
-        return new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT );
-    }
-
-    private static TextView flatButton( Activity activity, String text,
-            int background, int textColor ) {
-        TextView btn = new TextView( activity );
-        btn.setText( text );
-        btn.setTextColor( textColor );
-        btn.setTextSize( 14f );
-        btn.setTypeface( Typeface.DEFAULT, Typeface.BOLD );
-        btn.setBackgroundColor( background );
-        btn.setGravity( Gravity.CENTER );
-        int pad = dp( activity, 14 );
-        btn.setPadding( pad, pad, pad, pad );
-        return btn;
-    }
 
     private static int dp( Activity activity, int value ) {
         float density = activity.getResources().getDisplayMetrics().density;

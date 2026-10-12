@@ -17,12 +17,28 @@ public class InstallStatusReceiver extends BroadcastReceiver {
 
     private static final String TAG = "InstallStatus";
 
+    /**
+     * Optional sink for install results: the update dialog (when it is on
+     * screen) shows the pending-user-action / failure states inline instead
+     * of the user only seeing a toast. Called on the main thread.
+     */
+    public interface Listener {
+        void onInstallStatus( int status, String message );
+    }
+
+    static volatile Listener sListener = null;
+
     @Override
     public void onReceive( Context context, Intent intent ) {
         if( intent == null )
             return;
 
         int status = intent.getIntExtra( PackageInstaller.EXTRA_STATUS, -1 );
+        String message = intent.getStringExtra( PackageInstaller.EXTRA_STATUS_MESSAGE );
+
+        Listener listener = sListener;
+        if( listener != null )
+            listener.onInstallStatus( status, message );
 
         switch( status ) {
             case PackageInstaller.STATUS_PENDING_USER_ACTION:
@@ -39,6 +55,7 @@ public class InstallStatusReceiver extends BroadcastReceiver {
                 break;
 
             case PackageInstaller.STATUS_SUCCESS:
+                sListener = null;
                 Toast.makeText( context, "Update installed", Toast.LENGTH_LONG ).show();
                 // leave the freshly updated app for the user to reopen
                 if( Build.VERSION.SDK_INT >= 21 )
@@ -46,8 +63,7 @@ public class InstallStatusReceiver extends BroadcastReceiver {
                 break;
 
             default:
-                Log.w( TAG, "install failed: status=" + status + " "
-                        + intent.getStringExtra( PackageInstaller.EXTRA_STATUS_MESSAGE ) );
+                Log.w( TAG, "install failed: status=" + status + " " + message );
                 break;
         }
     }
