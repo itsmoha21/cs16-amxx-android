@@ -5345,12 +5345,15 @@ void CBasePlayer::UpdatePlayerSound()
 }
 
 // Guard used by the pointer sanity checks below: true when a pointer slot
-// holds a value that cannot be a real object address. Unaligned values are
-// corrupt on any architecture. The low address range test is 64-bit only:
-// real objects live above 4 GiB there while a float zero-extended into a
-// pointer slot stays below it. On 32-bit builds size_t never reaches 4 GiB,
-// so applying the range test there would flag every valid pointer (and wipe
-// every player's weapon state each frame).
+// holds a value that cannot be a real object address. Only the alignment
+// test is used: it is valid on both architectures and the back-pointer
+// consistency checks at the call sites cover dangling entries. An earlier
+// variant also range-tested 64-bit values (real objects above 4 GiB, a
+// zero-extended float below it), but Android arm64 does hand out valid
+// object addresses below 4 GiB, so that test flagged real weapon-chain
+// entries and wiped them every frame (firing stops after one shot, clip
+// ammo freezes, bots included). 32-bit builds never ran that test and
+// play fine with exactly the checks below, so 64-bit now uses them too.
 static bool IsCorruptObjectPointer(const void *ptr)
 {
 	if (!ptr)
@@ -5360,11 +5363,6 @@ static bool IsCorruptObjectPointer(const void *ptr)
 
 	if (value & (sizeof(void *) - 1))
 		return true;
-
-#if defined(__LP64__) || defined(_WIN64)
-	if (value < 0x100000000ull)
-		return true;
-#endif
 
 	return false;
 }
@@ -7464,11 +7462,10 @@ void CBasePlayer::ItemPostFrame()
 {
 	static int fInSelect = FALSE;
 
-	// Guard: plugin pdata writes can leave garbage pointers here (e.g. a
-	// float written into a pointer slot). Any float value zero-extended to
-	// 64 bits is below 4 GiB while real objects are not, so a range test
-	// kills that whole corruption class without dereferencing anything
-	// (64-bit builds only; see IsCorruptObjectPointer).
+	// Guard: plugin pdata writes can leave garbage pointers here. The
+	// helper only rejects misaligned values now (same checks on 32/64-bit;
+	// see IsCorruptObjectPointer), the raw-bits read still keeps the
+	// conversion operators from touching an invalid pointer.
 	{
 		// EHANDLE content read as raw bytes: its conversion operators may
 		// dereference the stored pointer, so validate the bits first.
