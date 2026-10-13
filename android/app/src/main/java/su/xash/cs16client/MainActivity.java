@@ -396,6 +396,12 @@ public class MainActivity extends Activity {
                 if( outFile.isFile() && rel.contains( "/addons/amxmodx/configs/" ))
                         return false;
 
+                // fvault vaults (ranks/points/packs plugins save) are player
+                // progress: the shipped files are EMPTY seeds and must never
+                // overwrite real data on any path, reinstall included
+                if( outFile.isFile() && rel.contains( "/addons/amxmodx/data/file_vault/" ))
+                        return false;
+
                 if( full || !outFile.isFile() )
                         return true;
 
