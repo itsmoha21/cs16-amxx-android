@@ -898,14 +898,15 @@ public class MainActivity extends Activity {
                         Log.w( TAG, "bot assets incomplete on disk - re-extracting" );
                 int count = 0;
                 count += copyAssetTree( "addons/yapb", new File( base, "yapb" ),
-                        false, manifest, full );
+                        false, manifest, full, factoryReset );
                 count += copyAssetTree( "addons/ebot", new File( base, "ebot" ),
-                        false, manifest, full );
+                        false, manifest, full, factoryReset );
                 // bundled waypoints never overwrite existing .ewp files -
                 // analyzed/user-provided waypoint files win over shipped ones
                 // (on the reinstall path too - this rule is absolute)
                 count += copyAssetTree( "addons/ebot/waypoints",
-                        new File( base, "ebot/waypoints" ), true, manifest, full );
+                        new File( base, "ebot/waypoints" ), true, manifest, full,
+                        factoryReset );
                 // keep the (bot-created) waypoints directory around
                 new File( base, "ebot/waypoints" ).mkdirs();
                 // ReGameDLL's built-in bot code reads these two databases
@@ -914,10 +915,10 @@ public class MainActivity extends Activity {
                 // to copy them to disk
                 count += copyAssetTree( "BotProfile.db",
                         new File( getXashDir(), "cstrike/BotProfile.db" ),
-                        false, manifest, full );
+                        false, manifest, full, factoryReset );
                 count += copyAssetTree( "BotChatter.db",
                         new File( getXashDir(), "cstrike/BotChatter.db" ),
-                        false, manifest, full );
+                        false, manifest, full, factoryReset );
 
                 prefs.edit().putString( "bot_assets_version", BOT_ASSETS_VERSION ).apply();
                 Log.i( TAG, "bot assets extracted: " + count + " files -> "
@@ -926,7 +927,7 @@ public class MainActivity extends Activity {
         }
 
         private int copyAssetTree( String assetPath, File dest, boolean skipExisting,
-                Map<String, String> manifest, boolean full ) {
+                Map<String, String> manifest, boolean full, boolean factoryReset ) {
                 int count = 0;
                 try {
                         String[] children = getAssets().list( assetPath );
@@ -973,7 +974,7 @@ public class MainActivity extends Activity {
                                         continue;
                                 count += copyAssetTree( assetPath + "/" + child,
                                         new File( dest, child ), skipExisting,
-                                        manifest, full );
+                                        manifest, full, factoryReset );
                         }
                 } catch( Throwable t ) {
                         Log.w( TAG, "asset copy failed: " + assetPath, t );
