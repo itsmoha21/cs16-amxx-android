@@ -252,9 +252,10 @@ public class MainActivity extends Activity {
 
         /**
          * force = true is the manual "Re-install addons" button: restore
-         * every bundled file to stock. Files this app never shipped (the
-         * user's own plugins, configs, waypoints) are never touched on any
-         * path - force only resets files that come from our own bundle.
+         * every bundled file to stock, configs included. Files this app
+         * never shipped (the user's own plugins, waypoints, saved plugin
+         * data) are never touched on any path - force only resets files
+         * that come from our own bundle.
          */
         private void extractAddons( boolean force ) throws Exception {
                 // bot packs (YaPB conf/graphs, EBot configs) ship as individual
@@ -270,15 +271,19 @@ public class MainActivity extends Activity {
                         getPreferences( MODE_PRIVATE ).getString( "addons_version", null ) != null
                         || getPreferences( MODE_PRIVATE ).getString( "bot_assets_version", null ) != null );
                 boolean full = force || bootstrap;
+                // only the user-pressed reinstall button may reset configs
+                // to stock; a bootstrap (upgrade from a pre-manifest build)
+                // keeps them, exactly like the old update path did
+                boolean factoryReset = force;
 
                 // cstrike addons (AMX Mod X for Counter-Strike) -- this app
                 // installs ONLY the counter-strike addon pack. The valve
                 // (Half-Life) AMX addons are handled by the engine app itself
                 // (Xash3D FWGS (AMXX)) at valve game launch since v9.
-                extractBotAssetsIfNeeded( full, manifest );
+                extractBotAssetsIfNeeded( full, factoryReset, manifest );
                 extractZipIfNeeded( "addons.zip", "addons_version",
                         "cstrike/addons/metamod/dlls/libmetamod_android_arm64.so",
-                        full, manifest );
+                        full, factoryReset, manifest );
                 saveShippedManifest( manifest );
 
                 // the stale-file cleanup is GONE. It deleted the
@@ -297,7 +302,7 @@ public class MainActivity extends Activity {
         }
 
         private int extractZipIfNeeded( String assetName, String prefKey,
-                String markerRelPath, boolean full,
+                String markerRelPath, boolean full, boolean factoryReset,
                 Map<String, String> manifest ) throws Exception {
                 SharedPreferences prefs = getPreferences( MODE_PRIVATE );
                 String installed = prefs.getString( prefKey, null );
@@ -332,7 +337,8 @@ public class MainActivity extends Activity {
                         }
 
                         // user-owned or user-edited file: keep the disk copy
-                        if( !mayOverwrite( outFile, rel, manifest, full )) {
+                        if( !mayOverwrite( outFile, rel, manifest, full,
+                                factoryReset )) {
                                 Log.i( TAG, "keeping user file: " + rel );
                                 zis.closeEntry();
                                 continue;
@@ -378,22 +384,20 @@ public class MainActivity extends Activity {
         //   - refresh a bundled file that is untouched since we wrote it
         //   - keep a bundled file the user edited (checksum mismatch)
         //   - never touch a file we never wrote (user's own addons)
-        // The "Re-install addons" button passes full = true and resets every
-        // bundled file to stock - the one way back to a stock bundle.
+        // The "Re-install addons" button passes full = factoryReset = true
+        // and resets every bundled file to stock, configs included - the one
+        // way back to a stock bundle. The one-time bootstrap (upgrade from a
+        // pre-manifest build) passes full only: it refreshes the bundle but
+        // keeps user configs, exactly like the old update path did.
         // ------------------------------------------------------------------
 
         /** true when the bundle may write rel over the disk copy. */
         private boolean mayOverwrite( File outFile, String rel,
-                Map<String, String> manifest, boolean full ) {
+                Map<String, String> manifest, boolean full,
+                boolean factoryReset ) {
                 // analyzed/user-provided waypoint files win over the shipped
                 // pack on every path, reinstall included
                 if( outFile.isFile() && rel.endsWith( ".ewp" ))
-                        return false;
-
-                // amxx configs are user-owned data: the plugin list, admins
-                // (users.ini), cvars... they are edited after the first
-                // install and never reset to stock
-                if( outFile.isFile() && rel.contains( "/addons/amxmodx/configs/" ))
                         return false;
 
                 // fvault vaults (ranks/points/packs plugins save) are player
@@ -402,14 +406,26 @@ public class MainActivity extends Activity {
                 if( outFile.isFile() && rel.contains( "/addons/amxmodx/data/file_vault/" ))
                         return false;
 
-                if( full || !outFile.isFile() )
-                        return true;
-
                 // modules.ini is the module loader list and MUST match the
                 // shipped .so set (it enables sqlite, which provides the
                 // "sqlx" class that plugins like amx_gag require) - always
                 // refreshed
                 if( rel.endsWith( "modules.ini" ))
+                        return true;
+
+                // the reinstall button resets everything bundled to stock,
+                // configs included: it is the one way back to a stock bundle
+                if( factoryReset )
+                        return true;
+
+                // on updates (and the one-time bootstrap) amxx configs are
+                // user-owned data: the plugin list, admins (users.ini),
+                // cvars... they are edited after the first install and an
+                // update must not clobber them
+                if( outFile.isFile() && rel.contains( "/addons/amxmodx/configs/" ))
+                        return false;
+
+                if( full || !outFile.isFile() )
                         return true;
 
                 String recorded = manifest.get( rel );
@@ -858,7 +874,7 @@ public class MainActivity extends Activity {
          * APK. Copy them to /xash/cstrike/addons once per ADDONS_VERSION so
          * every bot file is on disk next to the metamod plugins.
          */
-        private int extractBotAssetsIfNeeded( boolean full,
+        private int extractBotAssetsIfNeeded( boolean full, boolean factoryReset,
                 Map<String, String> manifest ) {
                 SharedPreferences prefs = getPreferences( MODE_PRIVATE );
                 File base = new File( getXashDir(), "cstrike/addons" );
@@ -926,7 +942,7 @@ public class MainActivity extends Activity {
                                         // user-owned or user-edited file:
                                         // keep the disk copy
                                         if( !mayOverwrite( dest, relToXash( dest ),
-                                                        manifest, full ))
+                                                        manifest, full, factoryReset ))
                                                 return 0;
                                 }
                                 InputStream in;
