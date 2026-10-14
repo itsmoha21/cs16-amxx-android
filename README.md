@@ -1,6 +1,6 @@
 # CS16 FRESH
 
-Counter-Strike 1.6 for Android with **AMX Mod X 1.9**, **Metamod** and **YaPB bots**.
+Counter-Strike 1.6 for Android with **AMX Mod X 1.9**, **Metamod-r** and **YaPB bots**.
 
 > **Built on PC.** The APKs in the [Releases](../../releases) page are compiled
 > and signed on the owner's own Windows machine from this exact source — there
@@ -11,7 +11,25 @@ Two apps work together:
 | App | What it does |
 |-----|--------------|
 | **Game app** (`cs16client-app-git-release.apk`) | Launches CS 1.6, installs the AMXX addons, compiles `.sma` plugins on the phone, edits `plugins*.ini` |
-| **Engine app** (`app-continuous.apk`) | The Xash3D FWGS engine — video, audio, touch controls, needed to run the game |
+| **Engine app** (`app-continuous.apk`) | The Xash3D FWGS engine - video, audio, touch controls, needed to run the game |
+
+## Features
+
+- **AMX Mod X 1.9** with **Metamod-r** - plugins load and run out of the box
+- **YaPB bots** - offline practice with waypoints, toggle in the launcher
+- **On-device plugin compiler** - turn `.sma` scripts into `.amxx` on the
+  phone, no PC needed
+- **Plugins editor** - edit any `plugins*.ini` on the phone with search,
+  line numbers and comment highlighting
+- **Full screen everywhere** - the game uses the whole display on notched
+  and punch-hole phones, no black bars
+- **Valve intro videos** - the startup `.avi` intros play again (FFmpeg
+  video playback built into the engine)
+- **Touch controls** with editable layout, plus gamepad and gyro support
+- **Both ARM types** - one APK set works on 32-bit and 64-bit phones
+- **Your progress is safe** - updates and reinstalls never overwrite
+  player progress files (ranks, points, packs); the reinstall button
+  restores stock configs while keeping your progress
 
 ---
 
@@ -138,20 +156,12 @@ Everything the APK needs is already in this repository:
 
 ### Engine app
 
-The engine app (`app-continuous.apk`) builds from the engine repository:
-
-```
-git clone --recursive https://github.com/venomxtreme-cs/xash3d-fwgs.git
-cd xash3d-fwgs/android
-./gradlew --no-daemon :app:assembleContinuous
-```
-
-The APK appears in `android/app/build/outputs/apk/continuous/`.
-
-The engine looks for the LGPL FFmpeg shared libraries in
-`3rdparty/ffmpeg/<abi>/{include,lib}` (both `armeabi-v7a` and `arm64-v8a`).
-They are not stored in git; fetch the prebuilts from the
-[FWGS/FFmpeg-Builds](https://github.com/FWGS/FFmpeg-Builds/releases)
+The engine app (`app-continuous.apk`) builds from the Xash3D FWGS engine
+([fwgs/xash3d-fwgs](https://github.com/fwgs/xash3d-fwgs)) with the local
+Android patches from this project applied. The engine looks for the LGPL
+FFmpeg shared libraries in `3rdparty/ffmpeg/<abi>/{include,lib}` (both
+`armeabi-v7a` and `arm64-v8a`). They are not stored in git; fetch the
+prebuilts from the [FWGS/FFmpeg-Builds](https://github.com/FWGS/FFmpeg-Builds/releases)
 `latest` release (the `*-lgpl-shared-minimal-9.0.tar.xz` archives, one per
 ABI, unpacked so each ABI directory contains `include/` and `lib/`).
 Without them the engine still builds and runs, but the Valve intro video
@@ -159,12 +169,11 @@ Without them the engine still builds and runs, but the Valve intro video
 
 ## What's inside
 
-- [venomxtreme-cs/xash3d-fwgs](https://github.com/venomxtreme-cs/xash3d-fwgs) -
-  engine, forked from [fwgs/xash3d-fwgs](https://github.com/fwgs/xash3d-fwgs)
+- [fwgs/xash3d-fwgs](https://github.com/fwgs/xash3d-fwgs) - engine
 - [Velaron/cs16-client](https://github.com/Velaron/cs16-client) — game client
 - [rehlds/ReGameDLL_CS](https://github.com/rehlds/ReGameDLL_CS) — game DLL,
   vendored with latest upstream fixes and an Android build fix
-- AMX Mod X 1.9, Metamod, YaPB bots, ReAPI
+- AMX Mod X 1.9, Metamod-r, YaPB bots, ReAPI
 
 ## Credits
 
