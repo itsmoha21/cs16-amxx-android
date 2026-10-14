@@ -1,6 +1,6 @@
 # CS16 FRESH
 
-Counter-Strike 1.6 for Android with **AMX Mod X 1.9**, **Metamod-r** and **YaPB bots**.
+Counter-Strike 1.6 for Android with **AMX Mod X 1.9**, **Metamod-r** and **YaPB / eBot bots**.
 
 > **Built on PC.** The APKs in the [Releases](../../releases) page are compiled
 > and signed on the owner's own Windows machine from this exact source — there
@@ -16,7 +16,10 @@ Two apps work together:
 ## Features
 
 - **AMX Mod X 1.9** with **Metamod-r** - plugins load and run out of the box
-- **YaPB bots** - offline practice with waypoints, toggle in the launcher
+- **YaPB bots or eBot** - YaPB for classic play with hand-made waypoints;
+  eBot (SyPB-based) with auto waypoint generation and semiclip, aimed at
+  zombie plague / escape style modes. Flip a switch in the launcher, the two
+  are exclusive - only one bot pack runs at a time
 - **On-device plugin compiler** - turn `.sma` scripts into `.amxx` on the
   phone, no PC needed
 - **Plugins editor** - edit any `plugins*.ini` on the phone with search,
@@ -94,7 +97,8 @@ The full structure looks like this:
 1. Open the **Game app** (`cs16client-app-git-release.apk`).
 2. The **STATUS** cards at the top show what is already installed and what is
    still missing.
-3. Turn on the **AMX Mod X** switch (and **YaPB bots** if you want bots).
+3. Turn on the **AMX Mod X** switch (and **YaPB bots** or **eBot** if you
+   want bots - the two switches are exclusive, only one bot pack runs).
 4. Tap **Re-install addons** — the addons (AMX Mod X + Metamod + bots) are
    bundled inside the app and get extracted to the right folders automatically.
 
@@ -104,8 +108,9 @@ The full structure looks like this:
 
 ### Step 4 — Play
 
-Tap **LAUNCH**. The game starts with AMX Mod X loaded. Bots: use the usual
-YaPB commands — `bot_add`, `bot_quota 4`, `bot_knives_only`, etc.
+Tap **LAUNCH**. The game starts with AMX Mod X loaded. YaPB: use the usual
+commands - `bot_add`, `bot_quota 4`, `bot_knives_only`, etc. eBot: it builds
+waypoints automatically and is meant for zombie plague / escape style play.
 
 ---
 
@@ -115,7 +120,7 @@ The game app has three tabs on the bottom bar:
 
 ### LAUNCH
 - **AMX Mod X** switch — turns the AMXX + Metamod chain on/off
-- **YaPB bots** switch — turns the bots on/off
+- **YaPB bots** / **eBot** switches - turns either bot pack on/off (exclusive)
 - **Re-install addons** — re-extracts the bundled addons (safe to run anytime)
 - **LAUNCH** — starts the game
 
@@ -173,7 +178,7 @@ Without them the engine still builds and runs, but the Valve intro video
 - [Velaron/cs16-client](https://github.com/Velaron/cs16-client) — game client
 - [rehlds/ReGameDLL_CS](https://github.com/rehlds/ReGameDLL_CS) — game DLL,
   vendored with latest upstream fixes and an Android build fix
-- AMX Mod X 1.9, Metamod-r, YaPB bots, ReAPI
+- AMX Mod X 1.9, Metamod-r, YaPB bots, eBot, ReAPI
 
 ## Credits
 
