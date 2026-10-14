@@ -25,6 +25,7 @@ import java.io.InputStream;
 import java.io.PrintWriter;
 import java.security.MessageDigest;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -39,7 +40,14 @@ public class MainActivity extends Activity {
         // (modules.ini is always refreshed so the sqlite/"sqlx" class
         //  that plugins like amx_gag need is enabled; amxx configs are
         //  kept - see extractZipIfNeeded)
-        private static final String ADDONS_VERSION = "amxx-1.9.0.5303-" + BuildConfig.VERSION_NAME;
+        // amxx-1.9.0.5304: metamod rebuilt with RTLD_GLOBAL game-DLL loading
+        // (ReAPI entity-class dynamic_cast fix for get_member_s plugins)
+        // amxx-1.9.0.5309: plugins.ini read from the public gamedir when the
+        // private module-dir copy misses (only *.so files are copied there;
+        // AMX Mod X attaches again), debug spam removed from engine.log
+        // amxx-1.9.0.5310: startup pass skips already-loaded child plugins
+        // and regcvar memloc misses are gated debug -- clean boot log
+        private static final String ADDONS_VERSION = "amxx-1.9.0.5310-" + BuildConfig.VERSION_NAME;
 
         // separate gate for the bot asset sync (yaPB conf/graphs, eBot
         // configs/waypoints, ReGameDLL BotProfile/BotChatter dbs) - bump
@@ -122,6 +130,10 @@ public class MainActivity extends Activity {
                         Toast.makeText( this, "Addons installation error: " + t.getMessage(), Toast.LENGTH_LONG ).show();
                         logInstallError( "cstrike addons (cs16client)", t );
                 }
+
+                // the fvault seeds ride with no zip; they appear only while
+                // the Zombie Plague X pack is installed and enabled
+                ensureZpxVaultSeeds();
 
                 showMenu();
         }
@@ -401,8 +413,11 @@ public class MainActivity extends Activity {
                         return false;
 
                 // fvault vaults (ranks/points/packs plugins save) are player
-                // progress: the shipped files are EMPTY seeds and must never
-                // overwrite real data on any path, reinstall included
+                // progress and must never be overwritten on any path,
+                // reinstall included. The Zombie Plague X seeds are created
+                // at runtime by ensureZpxVaultSeeds() only (no zip ships
+                // them), so nothing in a bundle should ever land here -
+                // this guard keeps that true even if a zip regains them.
                 if( outFile.isFile() && rel.contains( "/addons/amxmodx/data/file_vault/" ))
                         return false;
 
@@ -775,6 +790,10 @@ public class MainActivity extends Activity {
                                         logInstallError( "cstrike addons reinstall (cs16client)", t );
                                 }
                                 patchPluginsIni();
+                                // reinstall never deletes vault files, but a
+                                // fresh tree (or a pack installed afterwards)
+                                // still needs its seeds back
+                                ensureZpxVaultSeeds();
                                 refreshMenuStatus();
                                 Toast.makeText( MainActivity.this,
                                         R.string.menu_reinstalled, Toast.LENGTH_SHORT ).show();
@@ -819,6 +838,9 @@ public class MainActivity extends Activity {
                         logInstallError( "cstrike addons (cs16client)", t );
                 }
                 patchPluginsIni();
+                // a pack installed after app start still gets its seeds
+                // before the engine runs
+                ensureZpxVaultSeeds();
                 launchEngine();
         }
 
@@ -997,6 +1019,102 @@ public class MainActivity extends Activity {
 
         private boolean isAmxxOn() {
                 return getPreferences( MODE_PRIVATE ).getBoolean( "enable_amxx", true );
+        }
+
+        // ------------------------------------------------------------------
+        // fvault seed files for the Zombie Plague X pack
+        //
+        // fvault.inc opens its vaults READ-FIRST and calls feof() on the
+        // fopen() result without checking it: when the vault file is
+        // missing, every rank/points/packs save dies with "Invalid file
+        // handle 0 used in native feof" and the plugin gets paused. fvault
+        // only mkdirs from its listing stocks, so a fresh install can never
+        // heal itself.
+        //
+        // These vaults belong to the Zombie Plague X pack alone, so the
+        // empty seeds are created here - and only while that pack is
+        // actually installed and enabled. Installs that never run it (other
+        // zombie mods, plain CS) never get stray vault files, and valve
+        // (Half-Life) never gets them at all. Existing vault files are
+        // player progress: created only when missing, never overwritten or
+        // removed (see mayOverwrite).
+        // ------------------------------------------------------------------
+
+        private void ensureZpxVaultSeeds() {
+                try {
+                        // the pack's core plugin - Zombie Plague Advance
+                        // ships a differently named one
+                        // (zombie_plague_advance_*), so it can never match
+                        File core = new File( getXashDir(),
+                                "cstrike/addons/amxmodx/plugins/zombie_plague.amxx" );
+                        if( !core.isFile() )
+                                return;
+                        if( !isAmxxOn() || !zpxPackListed() )
+                                return;
+
+                        File vault = new File( getXashDir(),
+                                "cstrike/addons/amxmodx/data/file_vault" );
+                        if( !vault.isDirectory() && !vault.mkdirs() )
+                                return;
+
+                        // vault names recovered from the pack's plugin
+                        // binaries (each plugin passes its own name to
+                        // fvault); Points/points_db/status_db are the names
+                        // an older revision of that pack wrote
+                        String[] names = {
+                                "zpx_rank_system", "zpx_quests_system",
+                                "zpx_save_points", "zpx_save_packs",
+                                "zpx_save_zclass", "zpx_save_knife",
+                                "zpx_save_get", "Points", "points_db",
+                                "status_db" };
+                        for( String n : names ) {
+                                File f = new File( vault, n + ".txt" );
+                                if( !f.isFile() )
+                                        f.createNewFile();
+                        }
+                } catch( Throwable t ) {
+                        Log.w( TAG, "zpx vault seeds failed", t );
+                }
+        }
+
+        /**
+         * true when zombie_plague.amxx is enabled in one of the AMXX
+         * plugin lists (configs/plugins.ini + every configs/plugins-*.ini,
+         * which the module loads on top of it - see
+         * LoadExtraPluginsFromDir in meta_api.cpp). A commented-out line
+         * ("; zombie_plague.amxx") does not count.
+         */
+        private boolean zpxPackListed() {
+                File configs = new File( getXashDir(),
+                        "cstrike/addons/amxmodx/configs" );
+                File[] inis = configs.listFiles();
+                if( inis == null )
+                        return false;
+                for( File f : inis ) {
+                        String name = f.getName().toLowerCase( Locale.US );
+                        if( !f.isFile() || !( name.equals( "plugins.ini" )
+                                || ( name.startsWith( "plugins-" )
+                                        && name.endsWith( ".ini" ))))
+                                continue;
+                        try {
+                                BufferedReader r = new BufferedReader(
+                                        new FileReader( f ));
+                                String line;
+                                while(( line = r.readLine()) != null ) {
+                                        int c = line.indexOf( ';' );
+                                        if( c >= 0 )
+                                                line = line.substring( 0, c );
+                                        if( line.trim().equalsIgnoreCase(
+                                                "zombie_plague.amxx" )) {
+                                                r.close();
+                                                return true;
+                                        }
+                                }
+                                r.close();
+                        } catch( Throwable ignored ) {
+                        }
+                }
+                return false;
         }
 
         /**
