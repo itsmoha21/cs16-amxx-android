@@ -3137,6 +3137,13 @@ bool CHalfLifeMultiplay::RestartRoundCheck(float tmDelay)
 	UTIL_ClientPrintAll(HUD_PRINTCENTER, "#Game_will_restart_in", UTIL_dtos1(tmDelay), (tmDelay == 1) ? "SECOND" : "SECONDS");
 	UTIL_ClientPrintAll(HUD_PRINTCONSOLE, "#Game_will_restart_in_console", UTIL_dtos1(tmDelay), (tmDelay == 1) ? "SECOND" : "SECONDS");
 
+	// a forced restart has no round winner, so mods never see the SendAudio
+	// tokens they use to detect round ends - their "no one won" path (which
+	// stops the looping map ambience and its replay task) never ran and the
+	// old ambience kept playing across the restart. Signal the same
+	// "rounddraw" token a natural draw sends so those hooks engage.
+	Broadcast("rounddraw");
+
 	m_flRestartRoundTime = gpGlobals->time + tmDelay;
 	m_bCompleteReset = true;
 

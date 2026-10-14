@@ -4709,6 +4709,14 @@ BOOL EXT_FUNC AddToFullPack(struct entity_state_s *state, int e, edict_t *ent, e
 		Q_memcpy(state->basevelocity, ent->v.basevelocity, sizeof(float) * 3);
 
 		state->weaponmodel = MODEL_INDEX(STRING(ent->v.weaponmodel));
+		// same blank-held-model guard as UpdateClientData: show the default
+		// knife in third person when a mod left the model empty
+		if (!state->weaponmodel)
+		{
+			CBasePlayer *pHeldOwner = CBasePlayer::Instance(const_cast<entvars_t *>(&ent->v));
+			if (pHeldOwner && pHeldOwner->m_pActiveItem && pHeldOwner->m_pActiveItem->m_iId == WEAPON_KNIFE)
+				state->weaponmodel = MODEL_INDEX("models/p_knife.mdl");
+		}
 		state->gaitsequence = ent->v.gaitsequence;
 
 		state->spectator = (ent->v.flags & FL_SPECTATOR) ? TRUE : FALSE;
@@ -5042,6 +5050,11 @@ void EXT_FUNC UpdateClientData(const edict_t *ent, int sendweapons, struct clien
 #endif
 
 	cd->viewmodel = MODEL_INDEX(STRING(pev->viewmodel));
+	// mods that swap weapon models (e.g. knife menus) can leave the viewmodel
+	// blank when their per-player data isn't loaded yet; draw the default
+	// knife model instead of nothing in that case
+	if (!cd->viewmodel && pPlayer && pPlayer->m_pActiveItem && pPlayer->m_pActiveItem->m_iId == WEAPON_KNIFE)
+		cd->viewmodel = MODEL_INDEX("models/v_knife.mdl");
 	cd->waterlevel = pev->waterlevel;
 	cd->watertype = pev->watertype;
 	cd->weapons = pev->weapons;
