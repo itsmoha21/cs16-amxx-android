@@ -131,14 +131,36 @@ cd cs16fresh/android
 The APK appears in `android/app/build/outputs/apk/git/release/`.
 
 Everything the APK needs is already in this repository:
-- the engine and client sources
+- the client sources
 - the game DLL (`3rdparty/ReGameDLL_CS`, vendored)
 - prebuilt AMXX / Metamod / amxxpc binaries (`android/app/src/main/jniLibs`)
 - the addons bundle (`android/app/src/main/assets/addons.zip`)
 
+### Engine app
+
+The engine app (`app-continuous.apk`) builds from the engine repository:
+
+```
+git clone --recursive https://github.com/venomxtreme-cs/xash3d-fwgs.git
+cd xash3d-fwgs/android
+./gradlew --no-daemon :app:assembleContinuous
+```
+
+The APK appears in `android/app/build/outputs/apk/continuous/`.
+
+The engine looks for the LGPL FFmpeg shared libraries in
+`3rdparty/ffmpeg/<abi>/{include,lib}` (both `armeabi-v7a` and `arm64-v8a`).
+They are not stored in git; fetch the prebuilts from the
+[FWGS/FFmpeg-Builds](https://github.com/FWGS/FFmpeg-Builds/releases)
+`latest` release (the `*-lgpl-shared-minimal-9.0.tar.xz` archives, one per
+ABI, unpacked so each ABI directory contains `include/` and `lib/`).
+Without them the engine still builds and runs, but the Valve intro video
+(`media/*.avi`) will not play.
+
 ## What's inside
 
-- [fwgs/xash3d-fwgs](https://github.com/fwgs/xash3d-fwgs) — engine
+- [venomxtreme-cs/xash3d-fwgs](https://github.com/venomxtreme-cs/xash3d-fwgs) -
+  engine, forked from [fwgs/xash3d-fwgs](https://github.com/fwgs/xash3d-fwgs)
 - [Velaron/cs16-client](https://github.com/Velaron/cs16-client) — game client
 - [rehlds/ReGameDLL_CS](https://github.com/rehlds/ReGameDLL_CS) — game DLL,
   vendored with latest upstream fixes and an Android build fix
