@@ -123,7 +123,7 @@ You need: [Android Studio](https://developer.android.com/studio) (it provides
 the SDK, NDK and JDK).
 
 ```
-git clone --recursive https://github.com/itsmoha21/cs16fresh.git
+git clone --recursive https://github.com/venomxtreme-cs/cs16fresh.git
 cd cs16fresh/android
 ./gradlew --no-daemon :app:assembleGitRelease
 ```
