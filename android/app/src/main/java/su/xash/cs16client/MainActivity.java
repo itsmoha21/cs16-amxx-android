@@ -50,7 +50,7 @@ public class MainActivity extends Activity {
         // amxx-1.9.0.5311: ArrayGetStringHandle/%a go through a validated
         // handle-table token -- 32-bit cells no longer truncate 64-bit
         // pointers (crash inside format()/AddString)
-        private static final String ADDONS_VERSION = "amxx-1.9.0.5311-" + BuildConfig.VERSION_NAME;
+        private static final String ADDONS_VERSION = "amxx-1.9.0.5312-" + BuildConfig.VERSION_NAME;
 
         // separate gate for the bot asset sync (yaPB conf/graphs, eBot
         // configs/waypoints, ReGameDLL BotProfile/BotChatter dbs) - bump
@@ -429,6 +429,14 @@ public class MainActivity extends Activity {
                 // "sqlx" class that plugins like amx_gag require) - always
                 // refreshed
                 if( rel.endsWith( "modules.ini" ))
+                        return true;
+
+                // hamdata.ini is the hamsandwich module's vtable table and
+                // MUST match the shipped module: without its entries every
+                // ReGameDLL hook the module knows fails as "Function ...
+                // not configured in hamdata.ini" and the requesting plugin
+                // kills itself at load. Not user data - always refreshed.
+                if( rel.endsWith( "hamdata.ini" ))
                         return true;
 
                 // the reinstall button resets everything bundled to stock,
