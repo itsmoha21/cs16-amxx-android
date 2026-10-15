@@ -47,7 +47,10 @@ public class MainActivity extends Activity {
         // AMX Mod X attaches again), debug spam removed from engine.log
         // amxx-1.9.0.5310: startup pass skips already-loaded child plugins
         // and regcvar memloc misses are gated debug -- clean boot log
-        private static final String ADDONS_VERSION = "amxx-1.9.0.5310-" + BuildConfig.VERSION_NAME;
+        // amxx-1.9.0.5311: ArrayGetStringHandle/%a go through a validated
+        // handle-table token -- 32-bit cells no longer truncate 64-bit
+        // pointers (crash inside format()/AddString)
+        private static final String ADDONS_VERSION = "amxx-1.9.0.5311-" + BuildConfig.VERSION_NAME;
 
         // separate gate for the bot asset sync (yaPB conf/graphs, eBot
         // configs/waypoints, ReGameDLL BotProfile/BotChatter dbs) - bump
